@@ -63,40 +63,7 @@ it asks:
 
 # How It Works
 
-```text
-                 📄 Job Description
-                        │
-                        ▼
-            AI understands the role
-      ─────────────────────────────────
-      • Required Skills
-      • Experience Range
-      • Seniority
-      • Preferred Background
-      ─────────────────────────────────
-                        │
-                        ▼
-             Candidate Normalization
-                        │
-                        ▼
-          Hybrid AI Ranking Engine
-         ┌───────────────────────────┐
-         │ Semantic Matching         │
-         │ Skill Alignment           │
-         │ Title Relevance           │
-         │ Experience Fit            │
-         │ Production Signals        │
-         │ Engagement Signals        │
-         └───────────────────────────┘
-                        │
-                        ▼
-         Explainable Candidate Scores
-                        │
-                        ▼
-          🏆 Ranked Recruiter Shortlist
-```
-
----
+<img width="670" height="1672" alt="Image" src="https://github.com/user-attachments/assets/6137edcd-d625-4405-91fc-0f75bb5a816d" />
 
 # Demo
 
