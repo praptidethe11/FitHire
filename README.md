@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="<img width="1895" height="966" alt="Image" src="https://github.com/user-attachments/assets/b35268e8-9383-4994-bad7-92014aaa899d" />" alt="FitHire Banner" width="100%">
+  <img width="1895" height="966" alt="Image" src="https://github.com/user-attachments/assets/b35268e8-9383-4994-bad7-92014aaa899d" />
 </p>
 
 <h1 align="center">FitHire</h1>
