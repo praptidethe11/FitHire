@@ -26,6 +26,8 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+
+
 try:
     from rank_bm25 import BM25Okapi
     HAS_BM25 = True
@@ -44,6 +46,33 @@ try:
 except ImportError:
     HAS_PDF = False
 
+try:
+    from sentence_transformers import SentenceTransformer, CrossEncoder
+    import torch
+    import torch.nn.functional as F
+    import math
+    HAS_TRANSFORMERS = True
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    bi_encoder = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+    cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', device=device)
+except ImportError:
+    HAS_TRANSFORMERS = False
+
+def parse_and_score_education(candidate_text: str, jd_analysis: Dict) -> float:
+    text = candidate_text.lower()
+    DEGREE_TIERS = {"phd": 4, "doctorate": 4, "master": 3, "ms": 3, "msc": 3, "mba": 3, "mtech": 3, "bachelor": 2, "bs": 2, "bsc": 2, "btech": 2, "ba": 2, "diploma": 1, "associate": 1}
+    cand_tier = 0
+    for degree, tier in DEGREE_TIERS.items():
+        if re.search(r'\b' + re.escape(degree) + r'\b', text):
+            cand_tier = max(cand_tier, tier)
+    jd_text = jd_analysis.get("experience_focus", "").lower() + " " + " ".join(jd_analysis.get("key_responsibilities", [])).lower()
+    req_tier = 2
+    if any(w in jd_text for w in ["phd", "doctorate"]): req_tier = 4
+    elif any(w in jd_text for w in ["master", "ms", "msc"]): req_tier = 3
+    if cand_tier == 0: return 0.8
+    elif cand_tier < req_tier: return 0.5
+    elif cand_tier > req_tier: return 1.15
+    return 1.0
 # ──────────────────────────────────────────────────────────────
 # App Setup
 # ──────────────────────────────────────────────────────────────
@@ -620,25 +649,35 @@ def score_candidate(
     if assessments:
         assess_s = min(1.0, sum(assessments.values()) / (len(assessments) * 100))
 
-    # ── Final composite score ──
-    # Weights tuned so scores spread meaningfully
-    technical = (
-        0.30 * bm25_s      # lexical JD match
-        + 0.45 * skill_s   # skill overlap (dominant signal)
-        + 0.25 * title_s   # role relevance
-    )
-    base = (
-        0.40 * technical
-        + 0.20 * exp_s
-        + 0.20 * ship_s
-        + 0.12 * company_s
-        + 0.08 * assess_s
-    )
-    final = min(1.0, base * eng + gh_b + notice_b)
+    # ── [NEW] AI Semantic Multiplier ──
+    semantic_multiplier = 1.0
+    if HAS_TRANSFORMERS:
+        full_text = build_candidate_text(c)
+        jd_embedding = bi_encoder.encode(jd_text, convert_to_tensor=True)
+        cand_embedding = bi_encoder.encode(full_text, convert_to_tensor=True)
+        cos_sim = F.cosine_similarity(jd_embedding, cand_embedding, dim=0).item()
+        cross_score = cross_encoder.predict([jd_text[:1500], full_text[:1000]])
+        normalized_cross = 1 / (1 + math.exp(-cross_score))
+        semantic_multiplier = (0.4 * cos_sim) + (0.6 * normalized_cross)
 
-    # Clamp to ensure meaningful spread (don't let everyone sit at 0.3)
-    # If skill_s = 0 AND bm25_s < 0.1 — candidate is truly irrelevant
-    if skill_s < 0.05 and bm25_s < 0.05:
+    # ── [NEW] Education Modifier ──
+    edu_mod = parse_and_score_education(full_text, jd_analysis)
+
+    # ── Final composite score ──
+    technical = (0.30 * bm25_s + 0.45 * skill_s + 0.25 * title_s)
+    base = (0.40 * technical + 0.20 * exp_s + 0.20 * ship_s + 0.12 * company_s + 0.08 * assess_s)
+
+    # Blend base heuristic score with AI Semantic Multiplier
+    if HAS_TRANSFORMERS:
+        final = (base * 0.4) + (base * semantic_multiplier * 0.6)
+    else:
+        final = base
+
+    # Apply engagement, bonuses, and education modifier
+    final = min(1.0, (final * eng + gh_b + notice_b) * edu_mod)
+
+    # ── Clamping ──
+    if skill_s < 0.05 and bm25_s < 0.05 and semantic_multiplier < 0.3:
         final = min(final, 0.18)
 
     breakdown = {
@@ -916,6 +955,10 @@ async def health():
 # Serve React frontend (built)
 # ──────────────────────────────────────────────────────────────
 from pathlib import Path
+
+data_dir = Path(__file__).parent.parent / "data"
+if data_dir.exists():
+    app.mount("/data", StaticFiles(directory=str(data_dir)), name="data")
 
 static_dir = Path(__file__).parent.parent / "frontend" / "dist"
 if static_dir.exists():

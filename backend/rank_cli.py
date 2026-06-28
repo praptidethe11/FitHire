@@ -25,9 +25,10 @@ from backend.main import (
     normalize_candidate,
     analyze_jd_with_claude,
     extract_jd_heuristic,
-    tokenize_candidate,
+    tokenize_for_bm25,
     score_candidate,
     build_reasoning,
+    build_candidate_text,
 )
 
 try:
@@ -110,7 +111,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     # BM25 index
     print("[5] Building BM25 index...")
     if HAS_BM25:
-        corpus = [tokenize_candidate(c) for c in candidates]
+        corpus = [tokenize_for_bm25(build_candidate_text(c)) for c in candidates]
         bm25_model = BM25Okapi(corpus)
         bm25_scores = bm25_model.get_scores(jd_tokens)
     else:
@@ -120,10 +121,14 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     print(f"    BM25 index built in {t_bm25 - t_start:.1f}s")
 
     # Score
-    print(f"[6] Scoring {len(candidates):,} candidates...")
+    print("[6] Scoring candidates...")
     scored = []
+    bm25_max = max(bm25_scores) if any(s > 0 for s in bm25_scores) else 1.0
+
     for i, c in enumerate(candidates):
-        final, info = score_candidate(c, float(bm25_scores[i]), jd_analysis, jd_tokens)
+        # Passing the required 5 arguments:
+        # c, bm25_scores[i], bm25_max, jd_analysis, jd_text
+        final, info = score_candidate(c, float(bm25_scores[i]), bm25_max, jd_analysis, jd_text)
         scored.append((final, info))
 
     scored.sort(key=lambda x: x[0], reverse=True)

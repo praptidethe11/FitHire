@@ -1,0 +1,456 @@
+[
+  {
+    "candidate_id": "CAND_001",
+    "profile": {
+      "anonymized_name": "Arjun K.",
+      "current_title": "Senior ML Engineer",
+      "current_company": "Swiggy",
+      "years_of_experience": 6.0,
+      "location": "Bangalore",
+      "summary": "Built production recommendation engine for food delivery. Deployed vector search using Faiss. A/B tested models improving CTR by 15%. Shipped multiple ML features to millions of users."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "PyTorch",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Faiss",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kubernetes",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "MLflow",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_002",
+    "profile": {
+      "anonymized_name": "Priya S.",
+      "current_title": "ML Engineer",
+      "current_company": "TCS",
+      "years_of_experience": 4.0,
+      "location": "Mumbai",
+      "summary": "Worked on data analytics dashboards and basic ML models. Research-focused role with some production deployments."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "TensorFlow",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "SQL",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Tableau",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_003",
+    "profile": {
+      "anonymized_name": "Rohan M.",
+      "current_title": "Principal ML Engineer",
+      "current_company": "Razorpay",
+      "years_of_experience": 9.0,
+      "location": "Bangalore",
+      "summary": "Led ML platform team. Built fraud detection system processing 1M transactions/day. Deployed LLM-based risk scoring. Open source contributor."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "PyTorch",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kafka",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Airflow",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "MLflow",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Docker",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kubernetes",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_004",
+    "profile": {
+      "anonymized_name": "Ananya R.",
+      "current_title": "Data Scientist",
+      "current_company": "Wipro",
+      "years_of_experience": 5.0,
+      "location": "Pune",
+      "summary": "Worked on analytical models and reports. Academic research background. Published papers on ML in healthcare."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "sklearn",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "R",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Excel",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_005",
+    "profile": {
+      "anonymized_name": "Karan B.",
+      "current_title": "Senior Software Engineer",
+      "current_company": "Zepto",
+      "years_of_experience": 7.0,
+      "location": "Bangalore",
+      "summary": "Backend engineering. Some ML exposure but primarily distributed systems. Deployed microservices at scale."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Go",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kafka",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kubernetes",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Docker",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Redis",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_006",
+    "profile": {
+      "anonymized_name": "Sneha T.",
+      "current_title": "ML Research Scientist",
+      "current_company": "IISc",
+      "years_of_experience": 3.0,
+      "location": "Bangalore",
+      "summary": "PhD student. Published 3 papers on LLMs. No production experience. Strong theoretical background."
+    },
+    "skills": [
+      {
+        "name": "PyTorch",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Transformers",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Research",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_007",
+    "profile": {
+      "anonymized_name": "Vikram P.",
+      "current_title": "Senior ML Engineer",
+      "current_company": "Meesho",
+      "years_of_experience": 6.0,
+      "location": "Bangalore",
+      "summary": "Built recommendation and search systems. Vector search using Pinecone. Fine-tuned LLMs for product search. 30 day notice period."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "PyTorch",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Faiss",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Pinecone",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "HuggingFace",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "MLflow",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_008",
+    "profile": {
+      "anonymized_name": "Divya L.",
+      "current_title": "Data Engineer",
+      "current_company": "Infosys",
+      "years_of_experience": 8.0,
+      "location": "Chennai",
+      "summary": "Data pipeline engineering. Some ML exposure through data preparation. Service company background."
+    },
+    "skills": [
+      {
+        "name": "SQL",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Spark",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Airflow",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "dbt",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_009",
+    "profile": {
+      "anonymized_name": "Abhinav G.",
+      "current_title": "Applied ML Engineer",
+      "current_company": "CRED",
+      "years_of_experience": 5.0,
+      "location": "Bangalore",
+      "summary": "Built semantic search and RAG pipelines. Fine-tuned BERT for document classification. Production ML experience."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "PyTorch",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Transformers",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Qdrant",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Docker",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  },
+  {
+    "candidate_id": "CAND_010",
+    "profile": {
+      "anonymized_name": "Meera J.",
+      "current_title": "Machine Learning Engineer",
+      "current_company": "Google",
+      "years_of_experience": 8.0,
+      "location": "Hyderabad",
+      "summary": "Senior role at Google. Recommendation systems for YouTube. Strong production background. High expected salary."
+    },
+    "skills": [
+      {
+        "name": "Python",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "TensorFlow",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "JAX",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "Kubernetes",
+        "proficiency": "intermediate"
+      },
+      {
+        "name": "BigQuery",
+        "proficiency": "intermediate"
+      }
+    ],
+    "career_history": [],
+    "education": [],
+    "certifications": [],
+    "redrob_signals": {
+      "last_active_date": "2024-06-01",
+      "recruiter_response_rate": 0.8,
+      "interview_completion_rate": 0.75,
+      "open_to_work_flag": true,
+      "github_activity_score": -1,
+      "notice_period_days": 30,
+      "profile_completeness_score": 85
+    }
+  }
+]
