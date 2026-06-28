@@ -1,6 +1,6 @@
-# FitHire — Intelligent Candidate Ranking System
+# FitHire - Intelligent Candidate Ranking System
 
-> Rank candidates the way a great recruiter would — not by matching keywords, but by actually understanding who fits the role.
+> Rank candidates the way a great recruiter would, not by matching keywords, but by actually understanding who fits the role.
 
 ## Quick Start
 
