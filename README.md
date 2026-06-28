@@ -63,7 +63,9 @@ it asks:
 
 # How It Works
 
-<img width="233" height="557" alt="Image" src="https://github.com/user-attachments/assets/6137edcd-d625-4405-91fc-0f75bb5a816d" />
+<p align="center">
+  <img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/6f04c894-5d15-4f4e-be2f-92b0eac99605" />
+</p>
 
 # Demo
 
