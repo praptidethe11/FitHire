@@ -63,7 +63,7 @@ it asks:
 
 # How It Works
 
-<img width="670" height="1672" alt="Image" src="https://github.com/user-attachments/assets/6137edcd-d625-4405-91fc-0f75bb5a816d" />
+<img width="233" height="557" alt="Image" src="https://github.com/user-attachments/assets/6137edcd-d625-4405-91fc-0f75bb5a816d" />
 
 # Demo
 
