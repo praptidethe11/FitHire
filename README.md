@@ -100,11 +100,7 @@ it asks:
 
 # Demo
 
-> Replace the placeholder below with your screen recording.
-
-```md
-[![FitHire Demo](docs/demo.gif)](https://github.com/user-attachments/assets/81e6e107-cebc-43b0-836c-b43193e90bb7)
-```
+https://github.com/user-attachments/assets/81e6e107-cebc-43b0-836c-b43193e90bb7
 
 The demo walks through:
 
