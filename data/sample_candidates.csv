@@ -1,0 +1,11 @@
+name,current_title,current_company,years_experience,location,skills,summary
+Arjun K.,Senior ML Engineer,Swiggy,6,Bangalore,"Python, PyTorch, Faiss, Kubernetes, MLflow","Built production recommendation engine for food delivery. Deployed vector search using Faiss. A/B tested models improving CTR by 15%. Shipped multiple ML features to millions of users."
+Priya S.,ML Engineer,TCS,4,Mumbai,"Python, TensorFlow, SQL, Tableau","Worked on data analytics dashboards and basic ML models. Research-focused role with some production deployments."
+Rohan M.,Principal ML Engineer,Razorpay,9,Bangalore,"Python, PyTorch, Kafka, Airflow, MLflow, Docker, Kubernetes","Led ML platform team. Built fraud detection system processing 1M transactions/day. Deployed LLM-based risk scoring. Open source contributor."
+Ananya R.,Data Scientist,Wipro,5,Pune,"Python, sklearn, R, Excel","Worked on analytical models and reports. Academic research background. Published papers on ML in healthcare."
+Karan B.,Senior Software Engineer,Zepto,7,Bangalore,"Python, Go, Kafka, Kubernetes, Docker, Redis","Backend engineering. Some ML exposure but primarily distributed systems. Deployed microservices at scale."
+Sneha T.,ML Research Scientist,IISc,3,Bangalore,"PyTorch, Transformers, Python, Research","PhD student. Published 3 papers on LLMs. No production experience. Strong theoretical background."
+Vikram P.,Senior ML Engineer,Meesho,6,Bangalore,"Python, PyTorch, Faiss, Pinecone, HuggingFace, MLflow","Built recommendation and search systems. Vector search using Pinecone. Fine-tuned LLMs for product search. 30 day notice period."
+Divya L.,Data Engineer,Infosys,8,Chennai,"SQL, Spark, Airflow, Python, dbt","Data pipeline engineering. Some ML exposure through data preparation. Service company background."
+Abhinav G.,Applied ML Engineer,CRED,5,Bangalore,"Python, PyTorch, Transformers, Qdrant, Docker","Built semantic search and RAG pipelines. Fine-tuned BERT for document classification. Production ML experience."
+Meera J.,Machine Learning Engineer,Google,8,Hyderabad,"Python, TensorFlow, JAX, Kubernetes, BigQuery","Senior role at Google. Recommendation systems for YouTube. Strong production background. High expected salary."
