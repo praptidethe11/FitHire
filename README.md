@@ -63,13 +63,13 @@ it asks:
 
 # How It Works
 
-<p align="center">
-  <img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/6f04c894-5d15-4f4e-be2f-92b0eac99605" />
-</p>
+<img width="233" height="557" alt="Image" src="https://github.com/user-attachments/assets/d6366e46-2891-4510-9f2a-6013bab7a46c" />
 
 # Demo
 
-https://github.com/user-attachments/assets/81e6e107-cebc-43b0-836c-b43193e90bb7
+<p align="center">
+  <img width="1920" height="1080" alt="Image" src="https://github.com/user-attachments/assets/6f04c894-5d15-4f4e-be2f-92b0eac99605" />
+</p>
 
 The demo walks through:
 
