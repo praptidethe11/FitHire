@@ -33,10 +33,13 @@ if __name__ == "__main__":
     print("=" * 55 + "\n")
 
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    subprocess.run([
-        sys.executable, "-m", "uvicorn",
-        "backend.main:app",
-        "--host", "0.0.0.0",
-        "--port", "8000",
-        "--reload",
-    ])
+    try:
+        subprocess.run([
+            sys.executable, "-m", "uvicorn",
+            "backend.main:app",
+            "--host", "0.0.0.0",
+            "--port", "8000",
+            "--reload",
+        ])
+    except KeyboardInterrupt:
+        print("\n[INFO] FitHire server shut down gracefully.")
