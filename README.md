@@ -152,7 +152,7 @@ git clone <repository>
 
 # Install dependencies
 
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # Start the server
 

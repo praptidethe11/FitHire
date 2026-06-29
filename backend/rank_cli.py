@@ -26,9 +26,11 @@ from backend.main import (
     analyze_jd_with_claude,
     extract_jd_heuristic,
     tokenize_for_bm25,
+    normalize_bm25_scores,
     score_candidate,
     build_reasoning,
     build_candidate_text,
+    generate_jd_weights,
 )
 
 try:
@@ -94,6 +96,11 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     print(f"    Experience: {jd_analysis.get('years_min')}-{jd_analysis.get('years_max')} yrs")
     print(f"    Must-have skills: {', '.join(jd_analysis.get('must_have_skills', [])[:8])}")
 
+    # Generate adaptive weights based on the Job Description
+    jd_weights = generate_jd_weights(jd_analysis, jd_text)
+
+    print(f"    Role type detected: {jd_weights.get('_role_type', 'generic')}")
+
     # JD tokens
     jd_tokens = re.findall(r"[a-z0-9]+", jd_text.lower())
     for kw in jd_analysis.get("domain_keywords", []):
@@ -113,7 +120,8 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     if HAS_BM25:
         corpus = [tokenize_for_bm25(build_candidate_text(c)) for c in candidates]
         bm25_model = BM25Okapi(corpus)
-        bm25_scores = bm25_model.get_scores(jd_tokens)
+        bm25_raw = list(bm25_model.get_scores(jd_tokens))
+        bm25_scores = normalize_bm25_scores(bm25_raw)  # percentile-based, not max-based
     else:
         bm25_scores = [0.0] * len(candidates)
 
@@ -123,12 +131,10 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     # Score
     print("[6] Scoring candidates...")
     scored = []
-    bm25_max = max(bm25_scores) if any(s > 0 for s in bm25_scores) else 1.0
 
     for i, c in enumerate(candidates):
-        # Passing the required 5 arguments:
-        # c, bm25_scores[i], bm25_max, jd_analysis, jd_text
-        final, info = score_candidate(c, float(bm25_scores[i]), bm25_max, jd_analysis, jd_text)
+        # bm25_scores[i] is already [0,1]; pass 1.0 as bm25_max (unused in new scorer)
+        final, info = score_candidate(c,bm25_scores[i],1.0,jd_analysis,jd_text,jd_weights)
         scored.append((final, info))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -136,20 +142,44 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
 
     t_score = time.time()
     print(f"    Scored in {t_score - t_bm25:.1f}s")
-    print(f"    Score range: {top[-1][0]:.4f} – {top[0][0]:.4f}")
+    top_score = top[0][1]['final_score'] * 100
+    bot_score = top[-1][1]['final_score'] * 100
+    print(f"    Score range: {bot_score:.1f}% – {top_score:.1f}%")
 
     # Write output
     print(f"\n[7] Writing {len(top)} results to: {out_path}")
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["candidate_id", "rank", "score", "reasoning",
-                         "name", "title", "company", "years_exp", "location", "skills_matched"])
-        for rank, (score, info) in enumerate(top, 1):
+        writer.writerow([
+            "candidate_id",
+            "rank",
+            "score_%",
+            "confidence_%",
+            "reasoning",
+            "name",
+            "title",
+            "company",
+            "years_exp",
+            "location",
+            "skills_matched",
+            "skill_alignment_%",
+            "experience_fit_%",
+            "career_progression_%",
+            "notice_period_%",
+            "semantic_match_%",
+            "technical_fit_%",
+            "career_fit_%",
+            "recruiter_fit_%",
+        ])
+        for rank, (_, info) in enumerate(top, 1):
             reasoning = build_reasoning(info, jd_analysis)
+            bd = info.get("breakdown", {})
+            def pct(v): return f"{round(v * 100, 1)}" if v is not None else ""
             writer.writerow([
                 info["candidate_id"],
                 rank,
-                round(score, 4),
+                pct(info["final_score"]),
+                pct(info["confidence_score"]),
                 reasoning,
                 info.get("name", ""),
                 info.get("current_title", ""),
@@ -157,13 +187,22 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
                 info.get("years_exp", ""),
                 info.get("location", ""),
                 "; ".join(info.get("matched_skills", [])),
+                pct(bd.get("skill_alignment")),
+                pct(bd.get("experience_fit")),
+                pct(bd.get("career_progression")),
+                pct(bd.get("notice_period")),
+                pct(bd.get("semantic_match")),
+                pct(bd.get("technical_fit")),
+                pct(bd.get("career_fit")),
+                pct(bd.get("recruiter_fit")),
             ])
 
     t_end = time.time()
     print(f"\n✅ Done in {t_end - t_start:.1f}s total")
     print(f"\nTop 10:")
-    for rank, (score, info) in enumerate(top[:10], 1):
-        print(f"  #{rank:2d}  {info['candidate_id']:15s}  {score:.4f}  {info['current_title'][:30]}")
+    for rank, (_, info) in enumerate(top[:10], 1):
+        score_pct = info['final_score'] * 100
+        print(f"  #{rank:2d}  {info['candidate_id']:15s}  {score_pct:5.1f}%  {info['current_title'][:30]}")
 
 
 def main():
