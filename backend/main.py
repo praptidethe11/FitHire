@@ -63,7 +63,41 @@ except ImportError:
 try:
     import pytesseract
     from PIL import Image
-    HAS_OCR = True
+
+    def _tesseract_works() -> bool:
+        try:
+            pytesseract.get_tesseract_version()
+            return True
+        except Exception:
+            return False
+
+    HAS_OCR = _tesseract_works()
+
+    # Importing pytesseract only proves the Python wrapper is installed —
+    # it does NOT prove the actual `tesseract` binary exists/is on PATH.
+    # On Windows (especially Git Bash / OneDrive-synced project folders),
+    # PATH often doesn't get picked up correctly even after a fresh install.
+    # Fall back to checking the default install locations directly.
+    if not HAS_OCR:
+        import platform
+        if platform.system() == "Windows":
+            _candidate_paths = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+            ]
+            for _path in _candidate_paths:
+                if os.path.isfile(_path):
+                    pytesseract.pytesseract.tesseract_cmd = _path
+                    if _tesseract_works():
+                        HAS_OCR = True
+                        print(f"[OCR] Found tesseract at '{_path}' (wasn't on PATH — set directly)")
+                        break
+
+    if not HAS_OCR:
+        print("[OCR] tesseract binary not found or not working.")
+        print("[OCR] Install it: https://github.com/UB-Mannheim/tesseract/wiki (Windows) / "
+              "brew install tesseract (Mac) / apt-get install tesseract-ocr (Linux)")
 except ImportError:
     HAS_OCR = False
 
@@ -425,30 +459,196 @@ class RankRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────
 # File Parsers
 # ──────────────────────────────────────────────────────────────
+def _ocr_image_bytes(file_bytes: bytes, source_hint: str = "") -> Tuple[str, float]:
+    """
+    Feature 4: Robust OCR pipeline for image resumes.
+    Handles rotated images, high-res screenshots, and multi-column layouts.
+    Returns (extracted_text, confidence_0_to_1).
+    Confidence degrades when OCR quality is low rather than rejecting the file.
+    """
+    if not HAS_OCR:
+        return "", 0.0
+
+    image = Image.open(io.BytesIO(file_bytes))
+
+    # Convert to RGB if needed (handles RGBA, palette, greyscale)
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+
+    # Upscale small images for better OCR accuracy (min 300 DPI equivalent)
+    w, h = image.size
+    if w < 800 or h < 800:
+        scale = max(800 / w, 800 / h)
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+    # Try primary orientation first
+    try:
+        osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
+        rotation = osd.get("rotate", 0)
+        if rotation and rotation != 0:
+            image = image.rotate(-rotation, expand=True)
+    except Exception:
+        pass  # OSD can fail on some images; proceed without rotation
+
+    # OCR with confidence data
+    try:
+        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+        words = [w for w, c in zip(data["text"], data["conf"]) if w.strip() and int(c) > 0]
+        confs = [int(c) for c in data["conf"] if int(c) > 0]
+        avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
+
+        # Get full text preserving layout
+        full_text = pytesseract.image_to_string(image, config="--psm 1")  # auto page segmentation
+
+        return full_text, avg_conf
+    except Exception as e:
+        print(f"[OCR] Error during extraction ({source_hint}): {e}")
+        # Last-resort fallback
+        try:
+            return pytesseract.image_to_string(image), 0.3
+        except Exception:
+            return "", 0.0
+
+
+def _parse_resume_text_to_candidate(text: str, ocr_confidence: float = 1.0, source_id: str = "") -> Dict:
+    """
+    Feature 4 & 5: Parse freeform resume text (from OCR or plain text) into
+    a raw candidate dict, then normalize. Used for image/text resumes.
+    The raw dict enters the same normalize_candidate pipeline as structured data.
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+    # Basic heuristic extraction from resume text
+    raw: Dict[str, Any] = {
+        "_raw_text": text,
+        "_ocr_confidence": ocr_confidence,
+        "candidate_id": source_id or f"RESUME_{abs(hash(text[:200]))}",
+    }
+
+    # Detect name: usually the first non-empty line before any section header
+    if lines:
+        first_line = lines[0]
+        # Name heuristic: short, no numbers, title-case-ish
+        if len(first_line) < 60 and not re.search(r"\d", first_line) and len(first_line.split()) <= 5:
+            raw["name"] = first_line
+
+    # Email extraction
+    email_m = re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
+    if email_m:
+        raw["email"] = email_m.group(0)
+
+    # Phone extraction
+    phone_m = re.search(r"[\+]?[\d][\d\s\-\(\)]{8,15}", text)
+    if phone_m:
+        raw["phone"] = phone_m.group(0).strip()
+
+    # LinkedIn extraction
+    linkedin_m = re.search(r"linkedin\.com/in/[\w\-]+", text, re.IGNORECASE)
+    if linkedin_m:
+        raw["linkedin"] = "https://" + linkedin_m.group(0)
+
+    # GitHub extraction
+    github_m = re.search(r"github\.com/[\w\-]+", text, re.IGNORECASE)
+    if github_m:
+        raw["github"] = "https://" + github_m.group(0)
+
+    # Use section detection to populate fields
+    detected = _detect_sections_from_text(text)
+
+    # Skills: collect skill-bearing lines and extract known skills
+    skill_text = " ".join(detected.get("skills", []) + [text])
+    raw["skills"] = _extract_skills_from_text(skill_text)
+
+    # Summary: first paragraph before any career signal
+    for i, line in enumerate(lines[:15]):
+        if len(line) > 40 and not re.search(r"\b(20\d{2}|19\d{2})\b", line):
+            raw["summary"] = line
+            break
+
+    # Experience / title inference: look for most senior-sounding title
+    for line in lines:
+        if re.search(r"\b(engineer|developer|scientist|architect|manager|lead|analyst|designer)\b", line.lower()):
+            raw["current_title"] = line[:80]
+            break
+
+    # Career history from detected lines
+    if detected.get("career"):
+        raw["career_history"] = [{
+            "title": raw.get("current_title", ""),
+            "company": "",
+            "description": "\n".join(detected["career"]),
+            "duration_months": 0,
+        }]
+
+    # Education from detected lines
+    if detected.get("education"):
+        raw["education"] = [{"text": l} for l in detected["education"]]
+
+    # Certifications
+    if detected.get("certifications"):
+        raw["certifications"] = [{"name": l} for l in detected["certifications"]]
+
+    # Confidence penalty: if OCR confidence is below threshold, flag it
+    if ocr_confidence < 0.5:
+        raw["_low_ocr_confidence"] = True
+
+    return raw
+
+
 def parse_jd_file(file_bytes: bytes, filename: str) -> str:
+    """
+    Parse a JD file to plain text.
+    Image files: runs OCR when available, returns empty string when not
+    so the endpoint can fall back to any text-box input instead of erroring.
+    """
     ext = filename.lower().rsplit(".", 1)[-1]
     if ext == "pdf":
         if not HAS_PDF:
-            raise HTTPException(400, "PyPDF2 not installed")
-        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        return "\n".join(p.extract_text() or "" for p in reader.pages)
+            raise HTTPException(400, "PyPDF2 not installed — cannot parse PDF job description")
+        try:
+            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            return "\n".join(p.extract_text() or "" for p in reader.pages)
+        except Exception as e:
+            print(f"[JD] PDF parse error: {e}")
+            return ""
     elif ext == "docx":
         if not HAS_DOCX:
-            raise HTTPException(400, "python-docx not installed")
-        doc = docx.Document(io.BytesIO(file_bytes))
-        return "\n".join(p.text for p in doc.paragraphs)
+            raise HTTPException(400, "python-docx not installed — cannot parse DOCX job description")
+        try:
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join(p.text for p in doc.paragraphs)
+        except Exception as e:
+            print(f"[JD] DOCX parse error: {e}")
+            return ""
     elif ext in ("jpg", "jpeg", "png"):
         if not HAS_OCR:
-            raise HTTPException(400, "OCR dependencies not installed")
-        image = Image.open(io.BytesIO(file_bytes))
-        return pytesseract.image_to_string(image)
+            # OCR not installed — return empty so caller falls back to text-box input
+            print(f"[JD] OCR not available for '{filename}' — will use text input if provided")
+            return ""
+        try:
+            text, conf = _ocr_image_bytes(file_bytes, source_hint=filename)
+            if not text.strip():
+                print(f"[JD] OCR returned empty text for '{filename}'")
+                return ""
+            print(f"[JD] OCR extracted {len(text)} chars from '{filename}' (conf={conf:.2f})")
+            return text
+        except Exception as e:
+            print(f"[JD] OCR error for '{filename}': {e}")
+            return ""
     elif ext in ("txt", "md"):
         return file_bytes.decode("utf-8", errors="replace")
     else:
         return file_bytes.decode("utf-8", errors="replace")
 
 def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
+    """
+    Parse candidate data from any supported format.
+    Feature 4: Image formats (JPG/PNG/JPEG) are OCR'd and parsed as resumes.
+    Feature 5: Handles JSON, JSONL, CSV, Excel, and freeform image resumes.
+    """
     ext = filename.lower().rsplit(".", 1)[-1]
+
+    # ── Structured data formats ───────────────────────────────
     if ext == "jsonl":
         candidates = []
         for line in file_bytes.decode("utf-8", errors="replace").splitlines():
@@ -459,27 +659,46 @@ def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
                 except:
                     pass
         return candidates
+
     elif ext == "json":
         data = json.loads(file_bytes.decode("utf-8", errors="replace"))
         if isinstance(data, list):
             return data
         elif isinstance(data, dict):
-            for key in ("candidates", "data", "results"):
+            for key in ("candidates", "data", "results", "applicants", "profiles", "records"):
                 if key in data and isinstance(data[key], list):
                     return data[key]
             return [data]
+
     elif ext == "csv":
         df = pd.read_csv(io.BytesIO(file_bytes))
         return df.to_dict(orient="records")
+
     elif ext in ("xlsx", "xls"):
         df = pd.read_excel(io.BytesIO(file_bytes))
         return df.to_dict(orient="records")
+
+    # ── Feature 4: Image resume formats ──────────────────────
+    elif ext in ("jpg", "jpeg", "png"):
+        if not HAS_OCR:
+            print(f"[WARN] OCR not available — cannot parse image resume: {filename}")
+            return []
+        text, confidence = _ocr_image_bytes(file_bytes, source_hint=filename)
+        if not text.strip():
+            print(f"[WARN] OCR returned empty text for: {filename}")
+            return []
+        raw_candidate = _parse_resume_text_to_candidate(text, confidence, source_id=filename)
+        return [raw_candidate]
+
+    # ── Fallback: try JSON/JSONL text ─────────────────────────
     else:
         text = file_bytes.decode("utf-8", errors="replace")
         try:
             data = json.loads(text)
             if isinstance(data, list):
                 return data
+            elif isinstance(data, dict):
+                return [data]
         except:
             pass
         candidates = []
@@ -646,66 +865,422 @@ def extract_jd_heuristic(jd_text: str) -> Dict:
 
 # ──────────────────────────────────────────────────────────────
 # Phase 2 — Candidate Normalization
+# Feature 1: Universal Field Name Normalization
+# Feature 3: Experience Inference from Role Labels
+# Feature 6: Synonym Recognition
+# Feature 7: Robust Missing Data Handling
 # ──────────────────────────────────────────────────────────────
+
+# ── Feature 1 & 6: Exhaustive field synonym catalogue ────────
+# Each tuple = (internal_field_name, [all accepted synonyms])
+_FIELD_SYNONYMS: Dict[str, List[str]] = {
+    "candidate_id": [
+        "candidate_id", "id", "ID", "CandidateID", "cand_id", "applicant_id",
+        "user_id", "uid", "profile_id",
+    ],
+    "name": [
+        "name", "full_name", "FullName", "anonymized_name", "candidate_name",
+        "applicant_name", "Name",
+    ],
+    "headline": [
+        "headline", "Headline", "title", "Title", "job_title", "current_headline",
+    ],
+    "summary": [
+        "summary", "Summary", "about", "bio", "Bio", "description", "Description",
+        "profile_summary", "professional_summary", "overview", "objective",
+        "career_objective", "about_me",
+    ],
+    "current_title": [
+        "current_title", "CurrentTitle", "role", "Role", "current_role",
+        "designation", "Designation", "position", "Position", "job_title",
+        "JobTitle", "title", "Title",
+    ],
+    "current_company": [
+        "current_company", "CurrentCompany", "company", "Company", "employer",
+        "Employer", "organization", "Organisation", "Organization", "workplace",
+        "Workplace", "firm", "Firm", "current_employer",
+    ],
+    "location": [
+        "location", "Location", "city", "City", "current_location",
+        "CurrentLocation", "residence", "Residence", "address", "Address",
+        "current_city",
+    ],
+    "years_of_experience": [
+        "years_of_experience", "years_experience", "experience",
+        "YearsExperience", "yearsExperience", "total_experience", "total_exp",
+        "experience_years", "exp", "Exp", "work_experience_years",
+        "professional_experience", "years", "experience_in_years",
+    ],
+    "skills": [
+        "skills", "Skills", "skill_set", "skillset", "Skillset",
+        "technical_skills", "TechnicalSkills", "technologies", "Technologies",
+        "competencies", "Competencies", "expertise", "Expertise",
+        "tech_stack", "TechStack", "stack", "Stack",
+        "programming_languages", "ProgrammingLanguages", "core_skills",
+        "CoreSkills", "tools", "Tools",
+    ],
+    "career_history": [
+        "career_history", "CareerHistory", "work_experience", "WorkExperience",
+        "employment_history", "EmploymentHistory", "work_history", "WorkHistory",
+        "experience_history", "ExperienceHistory", "professional_history",
+        "ProfessionalHistory", "job_history", "positions", "roles",
+        "experience_details",
+    ],
+    "education": [
+        "education", "Education", "academics", "Academics",
+        "educational_background", "EducationalBackground", "qualification",
+        "Qualification", "qualifications", "degrees", "Degrees",
+        "academic_background",
+    ],
+    "certifications": [
+        "certifications", "Certifications", "certificates", "Certificates",
+        "credentials", "Credentials", "licenses", "Licenses",
+        "professional_certifications", "training", "Training",
+        "professional_training", "certs",
+    ],
+    "projects": [
+        "projects", "Projects", "portfolio", "Portfolio",
+        "relevant_projects", "RelevantProjects", "project_experience",
+        "ProjectExperience", "case_studies", "CaseStudies", "assignments",
+    ],
+    "publications": [
+        "publications", "Publications", "papers", "Papers", "research_papers",
+        "articles", "Articles",
+    ],
+    "awards": [
+        "awards", "Awards", "achievements", "Achievements", "honors", "Honors",
+        "recognition", "Recognition",
+    ],
+    "open_source": [
+        "open_source", "github", "GitHub", "github_url", "github_profile",
+        "github_link", "GithubUrl", "GithubProfile", "oss_contributions",
+    ],
+    "linkedin": [
+        "linkedin", "LinkedIn", "linkedin_url", "linkedin_profile",
+        "LinkedinUrl", "LinkedinProfile", "linkedin_link",
+    ],
+    "notice_period_days": [
+        "notice_period_days", "notice_period", "NoticePeriod",
+        "availability", "Availability", "joining_time", "joining_period",
+        "available_in_days", "notice",
+    ],
+    "github_activity_score": [
+        "github_activity_score", "github_score", "GitHubScore",
+        "oss_score", "github_stars",
+    ],
+}
+
+# Pre-build fast lookup: any variant → canonical field name
+_VARIANT_TO_CANONICAL: Dict[str, str] = {}
+for _canon, _variants in _FIELD_SYNONYMS.items():
+    for _v in _variants:
+        _VARIANT_TO_CANONICAL[_v] = _canon
+        _VARIANT_TO_CANONICAL[_v.lower()] = _canon
+        _VARIANT_TO_CANONICAL[_v.upper()] = _canon
+        _VARIANT_TO_CANONICAL[_v.title()] = _canon
+
+
+def _resolve_field(raw: Dict, canonical: str, default=None):
+    """Return the first non-empty value from raw matching any synonym of canonical."""
+    for variant in _FIELD_SYNONYMS.get(canonical, [canonical]):
+        for form in [variant, variant.lower(), variant.upper(), variant.title()]:
+            v = raw.get(form)
+            if v is not None and str(v).strip() not in ("", "nan", "None", "NaN"):
+                return v
+    return default
+
+
+def _resolve_str(raw: Dict, canonical: str, default: str = "") -> str:
+    v = _resolve_field(raw, canonical, default)
+    return str(v).strip() if v is not None else default
+
+
+def _resolve_list(raw: Dict, canonical: str) -> List:
+    v = _resolve_field(raw, canonical)
+    if isinstance(v, list):
+        return v
+    return []
+
+
+# ── Feature 3: Experience inference from role-level labels ────
+_ROLE_LEVEL_EXP: List[Tuple[List[str], float]] = [
+    (["intern", "trainee", "apprentice"],           0.5),
+    (["entry", "graduate", "fresher", "fresh grad", "new grad", "entry-level", "entry level"], 1.0),
+    (["junior", "jr", "jr."],                       2.0),
+    (["associate"],                                  3.0),
+    (["mid", "mid-level", "intermediate", "experienced developer"], 4.0),
+    (["senior", "sr", "sr."],                        6.0),
+    (["lead", "tech lead", "technical lead", "team lead"], 8.0),
+    (["principal", "staff"],                        10.0),
+    (["architect", "solutions architect", "enterprise architect"], 10.0),
+    (["manager", "engineering manager"],            10.0),
+    (["director", "head of", "vp", "vice president", "cto", "ceo"], 12.0),
+]
+
+def _infer_experience_from_label(text: str) -> Optional[float]:
+    """
+    Given a freeform experience string like 'Senior' or 'Entry Level',
+    return an approximate years value. Returns None if clearly numeric.
+    """
+    t = text.lower().strip()
+    # If it already parses as a number (with units), don't infer
+    if re.search(r"\d+", t):
+        return None
+    for labels, years in _ROLE_LEVEL_EXP:
+        if any(lbl in t for lbl in labels):
+            return years
+    return None
+
+def _parse_years_exp(raw: Dict, current_title: str = "") -> float:
+    """
+    Feature 3: Parse experience from all synonym keys.
+    Supports numeric, range, unit-annotated, and role-label formats.
+    Numeric values always take priority over inferred labels.
+    """
+    # Gather all candidate values across all synonym keys
+    for k in _FIELD_SYNONYMS["years_of_experience"]:
+        v = raw.get(k)
+        if v is None:
+            continue
+        s = str(v).lower().strip()
+        if s in ("", "nan", "none"):
+            continue
+
+        # Range: "2-5 years" or "2–5 years" → take midpoint
+        range_m = re.match(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)", s)
+        if range_m:
+            lo, hi = float(range_m.group(1)), float(range_m.group(2))
+            return round((lo + hi) / 2, 1)
+
+        # "10+" or "10+ years"
+        plus_m = re.match(r"(\d+(?:\.\d+)?)\s*\+", s)
+        if plus_m:
+            return float(plus_m.group(1))
+
+        # Numeric with optional units: "5 years", "6.5 yrs", "3 yr", "4"
+        num_m = re.match(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?|yr)?$", s)
+        if num_m:
+            val = float(num_m.group(1))
+            if 0 <= val <= 60:
+                return val
+
+        # Role-label inference: "Senior", "Fresher", "Entry Level"
+        inferred = _infer_experience_from_label(s)
+        if inferred is not None:
+            return inferred
+
+    # Fallback: infer from current_title if still zero
+    if current_title:
+        inferred = _infer_experience_from_label(current_title)
+        if inferred is not None:
+            return inferred
+
+    return 0.0
+
+
+# ── Feature 2: Semantic Section Detection ─────────────────────
+# Patterns that identify section content even without explicit headers
+_SECTION_HINTS = {
+    "career": [
+        r"\b(20\d{2}|19\d{2})\s*[-–]\s*(20\d{2}|present|current)",  # date ranges
+        r"\b(senior|lead|principal|junior|associate|engineer|developer|manager|architect)\b.{0,60}\b(at|@|,)\b",
+        r"\bworked at\b",
+        r"\bjoined\b.{0,40}\b(as|to)\b",
+    ],
+    "education": [
+        r"\b(b\.?tech|m\.?tech|b\.?e|m\.?e|b\.?sc|m\.?sc|bca|mca|b\.?s|m\.?s|ph\.?d|mba|diploma)\b",
+        r"\b(university|college|institute|school|iit|nit|bits)\b",
+        r"\b(graduation|graduated|class of)\b",
+    ],
+    "skills": [
+        r"\b(python|java|javascript|typescript|react|angular|vue|node|django|fastapi|"
+        r"pytorch|tensorflow|aws|gcp|azure|docker|kubernetes|sql|mongodb|redis|kafka)\b",
+    ],
+    "certifications": [
+        r"\b(certified|certification|aws certified|google certified|azure certified|"
+        r"cka|ckad|pmp|cissp|comptia|microsoft certified)\b",
+    ],
+    "projects": [
+        r"\b(built|developed|designed|implemented|created|launched)\b.{0,80}\b(system|app|platform|tool|service|api|model)\b",
+        r"\bgithub\.com/\S+\b",
+    ],
+}
+
+def _detect_sections_from_text(text: str) -> Dict[str, List[str]]:
+    """
+    Feature 2: Infer semantic sections from freeform resume text
+    when no explicit headings are present. Returns a dict of
+    section_name → list of matching snippets (for downstream use).
+    """
+    detected: Dict[str, List[str]] = {k: [] for k in _SECTION_HINTS}
+    lines = text.split("\n")
+    for line in lines:
+        line_l = line.lower()
+        for section, patterns in _SECTION_HINTS.items():
+            for pat in patterns:
+                if re.search(pat, line_l):
+                    detected[section].append(line.strip())
+                    break
+    return detected
+
+
+def _extract_skills_from_text(text: str) -> List[Dict]:
+    """
+    Feature 5: Parse skills from freeform text when no explicit skills field exists.
+    Used when semantic section detection identifies skill lines.
+    """
+    KNOWN_SKILLS = {
+        "python", "java", "javascript", "typescript", "go", "golang", "rust", "scala", "kotlin",
+        "c", "c++", "c#", "ruby", "php", "swift", "r",
+        "react", "angular", "vue", "node", "nodejs", "django", "flask", "fastapi", "spring",
+        "pytorch", "tensorflow", "keras", "sklearn", "scikit-learn", "xgboost", "lightgbm",
+        "aws", "gcp", "azure", "docker", "kubernetes", "k8s", "terraform", "ansible",
+        "sql", "postgres", "postgresql", "mysql", "mongodb", "redis", "elasticsearch",
+        "kafka", "spark", "airflow", "flink", "dbt",
+        "llm", "rag", "embeddings", "faiss", "pinecone", "milvus", "weaviate",
+        "transformers", "bert", "gpt", "huggingface",
+        "mlflow", "wandb", "kubeflow", "sagemaker",
+        "git", "linux", "bash", "graphql", "grpc", "rest", "api",
+        "nlp", "deep learning", "machine learning", "ai", "computer vision",
+        "html", "css", "sass", "webpack", "vite", "next.js", "nuxt",
+        "excel", "tableau", "power bi", "looker",
+    }
+    found = []
+    text_l = text.lower()
+    for skill in KNOWN_SKILLS:
+        pattern = r'\b' + re.escape(skill) + r'\b'
+        if re.search(pattern, text_l):
+            found.append({"name": skill, "proficiency": "intermediate"})
+    return found
+
+
+def _normalize_skills_field(raw_skills) -> List[Dict]:
+    """Convert any skills format (list of str, list of dict, CSV string) to unified list."""
+    skills = []
+    if isinstance(raw_skills, list):
+        for s in raw_skills:
+            if isinstance(s, dict):
+                # Normalize dict: may have 'name'/'skill'/'technology' key
+                name = s.get("name") or s.get("skill") or s.get("technology") or s.get("title") or ""
+                proficiency = s.get("proficiency") or s.get("level") or s.get("expertise") or "intermediate"
+                if name:
+                    skills.append({"name": str(name).strip(), "proficiency": str(proficiency).strip()})
+            elif isinstance(s, str) and s.strip():
+                skills.append({"name": s.strip(), "proficiency": "intermediate"})
+    elif isinstance(raw_skills, str) and raw_skills.strip():
+        for s in re.split(r"[,;|\n•·▪\-]+", raw_skills):
+            s = s.strip()
+            if s and len(s) < 60:  # sanity: skip paragraph-length blobs
+                skills.append({"name": s, "proficiency": "intermediate"})
+    return skills
+
+
+def _normalize_career_entry(entry) -> Dict:
+    """Normalize a single career history entry from any format."""
+    if not isinstance(entry, dict):
+        return {"title": str(entry), "company": "", "description": "", "duration_months": 0}
+    # Accept multiple key names for each sub-field
+    title = (entry.get("title") or entry.get("role") or entry.get("designation")
+             or entry.get("position") or entry.get("job_title") or "")
+    company = (entry.get("company") or entry.get("employer") or entry.get("organization")
+               or entry.get("organisation") or entry.get("firm") or "")
+    desc = (entry.get("description") or entry.get("responsibilities") or entry.get("summary")
+            or entry.get("details") or entry.get("achievements") or "")
+    duration = entry.get("duration_months") or entry.get("duration") or 0
+    if not isinstance(duration, (int, float)):
+        # Try to parse "2 years 3 months" or "27 months"
+        dur_s = str(duration).lower()
+        months = 0
+        yr_m = re.search(r"(\d+)\s*year", dur_s)
+        mo_m = re.search(r"(\d+)\s*month", dur_s)
+        if yr_m:
+            months += int(yr_m.group(1)) * 12
+        if mo_m:
+            months += int(mo_m.group(1))
+        duration = months
+    return {
+        "title": str(title).strip(),
+        "company": str(company).strip(),
+        "description": str(desc).strip(),
+        "duration_months": int(duration),
+    }
+
+
 def normalize_candidate(raw: Dict) -> Dict:
-    """Normalize various candidate formats into unified schema."""
+    """
+    Phase 2 — Normalize any candidate format into unified schema.
+    Feature 1: Universal field name normalization via _FIELD_SYNONYMS.
+    Feature 3: Experience inference from role-level labels.
+    Feature 5: Resume format robustness.
+    Feature 6: Synonym recognition.
+    Feature 7: No fabrication — missing fields get safe defaults, weights redistribute.
+    """
+    # Fast path: already in normalized profile format
     if "profile" in raw and isinstance(raw.get("profile"), dict):
         c = raw.copy()
         if "candidate_id" not in c:
             c["candidate_id"] = str(id(raw))
+        # Still run career entry normalization on existing profile
+        if "career_history" in c and isinstance(c["career_history"], list):
+            c["career_history"] = [_normalize_career_entry(e) for e in c["career_history"]]
         return c
 
-    def get(*keys, default=""):
-        for k in keys:
-            for variant in [k, k.lower(), k.upper(), k.title()]:
-                v = raw.get(variant)
-                if v is not None and str(v).strip() not in ("", "nan", "None"):
-                    return str(v).strip()
-        return default
+    # ── Identity ──────────────────────────────────────────────
+    candidate_id = _resolve_str(raw, "candidate_id") or f"CAND_{abs(id(raw))}"
+    name = _resolve_str(raw, "name") or "Unknown"
 
-    candidate_id = get("candidate_id", "id", "ID", "CandidateID", default=f"CAND_{abs(id(raw))}")
-    name = get("name", "Name", "full_name", "FullName", "anonymized_name", default="Unknown")
-    headline = get("headline", "Headline", "title", "Title", "job_title", default="")
-    summary = get("summary", "Summary", "about", "bio", "Bio", "description", default="")
-    current_title = get("current_title", "CurrentTitle", "role", "Role", "position", "Position", default=headline)
-    current_company = get("current_company", "CurrentCompany", "company", "Company", "employer", default="")
-    location = get("location", "Location", "city", "City", default="")
+    # ── Title / Headline ─────────────────────────────────────
+    headline = _resolve_str(raw, "headline")
+    current_title = _resolve_str(raw, "current_title") or headline
 
-    years_exp = 0.0
-    for k in ["years_of_experience", "years_experience", "experience", "YearsExperience", "total_experience", "exp"]:
-        v = raw.get(k)
-        if v is not None:
-            try:
-                years_exp = float(str(v).replace("years", "").replace("yrs", "").strip())
-                break
-            except:
-                pass
+    # ── Company ──────────────────────────────────────────────
+    current_company = _resolve_str(raw, "current_company")
 
-    skills_raw = None
-    for k in ["skills", "Skills", "skill_set", "skillset", "technologies"]:
-        if k in raw:
-            skills_raw = raw[k]
-            break
+    # ── Location ─────────────────────────────────────────────
+    location = _resolve_str(raw, "location")
 
-    skills = []
-    if isinstance(skills_raw, list):
-        for s in skills_raw:
-            if isinstance(s, dict):
-                skills.append(s)
-            else:
-                skills.append({"name": str(s).strip(), "proficiency": "intermediate"})
-    elif isinstance(skills_raw, str) and skills_raw:
-        for s in re.split(r"[,;|]", skills_raw):
-            s = s.strip()
-            if s:
-                skills.append({"name": s, "proficiency": "intermediate"})
+    # ── Summary / Bio ────────────────────────────────────────
+    summary = _resolve_str(raw, "summary")
 
-    career = []
-    if "career_history" in raw and isinstance(raw["career_history"], list):
-        career = raw["career_history"]
-    elif "work_experience" in raw and isinstance(raw["work_experience"], list):
-        career = raw["work_experience"]
-    elif current_title or current_company or summary:
+    # ── Feature 3: Experience (numeric → range → label → title inference) ──
+    years_exp = _parse_years_exp(raw, current_title)
+
+    # ── Feature 1 & 6: Skills (all synonym keys) ─────────────
+    skills_raw = _resolve_field(raw, "skills")
+    skills = _normalize_skills_field(skills_raw) if skills_raw is not None else []
+
+    # ── Feature 1 & 6: Career history (all synonym keys) ─────
+    career_raw = _resolve_list(raw, "career_history")
+    career = [_normalize_career_entry(e) for e in career_raw] if career_raw else []
+
+    # ── Feature 2: Semantic section detection fallback ────────
+    # If no structured career/skills found, try to detect from freeform text
+    raw_text_blob = summary
+    if not raw_text_blob:
+        # Stitch together all string values for section detection
+        raw_text_blob = " \n".join(
+            str(v) for v in raw.values()
+            if isinstance(v, str) and len(str(v)) > 20
+        )
+
+    if not career and raw_text_blob:
+        detected = _detect_sections_from_text(raw_text_blob)
+        if detected.get("career"):
+            # Build a synthetic career entry from detected lines
+            career = [{
+                "title": current_title,
+                "company": current_company,
+                "description": "\n".join(detected["career"]),
+                "duration_months": int(years_exp * 12),
+            }]
+
+    if not skills and raw_text_blob:
+        detected_skills = _extract_skills_from_text(raw_text_blob)
+        if detected_skills:
+            skills = detected_skills
+
+    # If still no career, synthesize from available fields
+    if not career and (current_title or current_company or summary):
         career = [{
             "title": current_title,
             "company": current_company,
@@ -713,11 +1288,59 @@ def normalize_candidate(raw: Dict) -> Dict:
             "duration_months": int(years_exp * 12),
         }]
 
-    # Extract additional Phase 2 signals
-    projects = raw.get("projects", raw.get("Projects", []))
-    publications = raw.get("publications", raw.get("Publications", []))
-    awards = raw.get("awards", raw.get("Awards", []))
-    open_source = raw.get("open_source", raw.get("github_url", raw.get("github", "")))
+    # ── Feature 1: Education (all synonym keys) ───────────────
+    education = _resolve_list(raw, "education")
+
+    # ── Feature 1: Certifications (all synonym keys) ──────────
+    certifications = _resolve_list(raw, "certifications")
+    # Also accept string lists of cert names
+    if not certifications:
+        cert_raw = _resolve_field(raw, "certifications")
+        if isinstance(cert_raw, str) and cert_raw.strip():
+            certifications = [{"name": c.strip()} for c in re.split(r"[,;|\n]", cert_raw) if c.strip()]
+
+    # ── Feature 1: Projects (all synonym keys) ────────────────
+    projects = _resolve_list(raw, "projects")
+
+    # ── Feature 1: OSS / GitHub / LinkedIn ───────────────────
+    open_source = _resolve_str(raw, "open_source")
+    linkedin = _resolve_str(raw, "linkedin")
+
+    # ── Feature 1: Notice period (all synonym keys) ──────────
+    notice_raw = _resolve_field(raw, "notice_period_days")
+    notice_days = 60  # default
+    if notice_raw is not None:
+        ns = str(notice_raw).lower().strip()
+        # "immediate" / "0" → 0
+        if ns in ("0", "0.0") or any(w in ns for w in ["immediate", "asap"]):
+            notice_days = 0
+        else:
+            # Convert weeks/months → days
+            val_m = re.search(r"(\d+)", ns)
+            if val_m:
+                val = int(val_m.group(1))
+                if "month" in ns:
+                    val *= 30
+                elif "week" in ns:
+                    val *= 7
+                notice_days = val
+
+    # ── Feature 1: GitHub activity ────────────────────────────
+    gh_score_raw = _resolve_field(raw, "github_activity_score")
+    gh_score = -1
+    if gh_score_raw is not None:
+        try:
+            gh_score = float(gh_score_raw)
+        except (ValueError, TypeError):
+            pass
+
+    # ── Redrob signals (structured if present, else defaults) ─
+    redrob = raw.get("redrob_signals", {})
+    if not isinstance(redrob, dict):
+        redrob = {}
+
+    publications = _resolve_list(raw, "publications")
+    awards = _resolve_list(raw, "awards")
 
     return {
         "candidate_id": candidate_id,
@@ -729,27 +1352,31 @@ def normalize_candidate(raw: Dict) -> Dict:
             "current_title": current_title,
             "current_company": current_company,
             "years_of_experience": years_exp,
-            "current_company_size": get("current_company_size", "company_size", default=""),
-            "current_industry": get("current_industry", "industry", "Industry", default=""),
+            "current_company_size": _resolve_str(raw, "current_company_size"),
+            "current_industry": (
+                _resolve_str(raw, "current_industry")
+                or str(raw.get("industry", raw.get("Industry", "")))
+            ),
         },
         "career_history": career,
-        "education": raw.get("education", []) if isinstance(raw.get("education"), list) else [],
+        "education": education,
         "skills": skills,
-        "certifications": raw.get("certifications", []) if isinstance(raw.get("certifications"), list) else [],
-        "projects": projects if isinstance(projects, list) else [],
-        "publications": publications if isinstance(publications, list) else [],
-        "awards": awards if isinstance(awards, list) else [],
-        "open_source": str(open_source) if open_source else "",
-        "redrob_signals": raw.get("redrob_signals", {
-            "last_active_date": "2024-06-01",
-            "recruiter_response_rate": 0.7,
-            "interview_completion_rate": 0.7,
-            "open_to_work_flag": True,
-            "github_activity_score": -1,
-            "notice_period_days": 60,
-            "profile_completeness_score": 70,
-        }),
-        "_raw_text": summary,
+        "certifications": certifications,
+        "projects": projects,
+        "publications": publications,
+        "awards": awards,
+        "open_source": open_source or str(redrob.get("github_url", "")),
+        "linkedin": linkedin,
+        "redrob_signals": {
+            "last_active_date": redrob.get("last_active_date", "2024-06-01"),
+            "recruiter_response_rate": float(redrob.get("recruiter_response_rate", 0.7)),
+            "interview_completion_rate": float(redrob.get("interview_completion_rate", 0.7)),
+            "open_to_work_flag": bool(redrob.get("open_to_work_flag", True)),
+            "github_activity_score": gh_score if gh_score > 0 else float(redrob.get("github_activity_score", -1)),
+            "notice_period_days": redrob.get("notice_period_days", notice_days),
+            "profile_completeness_score": float(redrob.get("profile_completeness_score", 70)),
+        },
+        "_raw_text": summary or raw_text_blob[:2000],
     }
 
 # ──────────────────────────────────────────────────────────────
@@ -1432,16 +2059,41 @@ async def rank_candidates(
     top_n: int = Form(20),
     use_ai: bool = Form(True),
 ):
+    # ── DEBUG: log exactly what the client actually sent ──
+    # Temporary diagnostic — remove once the JD-empty bug is confirmed fixed.
+    print(f"[DEBUG /api/rank] jd_file={'present, filename='+repr(jd_file.filename) if jd_file else 'MISSING'} "
+          f"| jd_text={'MISSING/None' if jd_text is None else repr(jd_text[:60])} "
+          f"| candidates_file={'present' if candidates_file and candidates_file.filename else 'MISSING'} "
+          f"| candidates_text={'present, len='+str(len(candidates_text)) if candidates_text else 'MISSING'}")
+
+    # ── JD resolution: file → OCR/parse → fallback to text box ──
+    # Priority: file parse result if non-empty, then text-box input.
+    # This handles: (a) image file with OCR, (b) file parse fails/empty → text box,
+    # (c) text box only, (d) both provided where file is empty (image + no OCR installed).
+    jd_content = ""
+
     if jd_file and jd_file.filename:
         jd_bytes = await jd_file.read()
+        print(f"[DEBUG /api/rank] read {len(jd_bytes)} bytes from jd_file '{jd_file.filename}'")
         jd_content = parse_jd_file(jd_bytes, jd_file.filename)
-    elif jd_text:
-        jd_content = jd_text
-    else:
-        raise HTTPException(400, "Provide job description as file or text")
+        print(f"[DEBUG /api/rank] parse_jd_file returned {len(jd_content)} chars")
+        # If file parse returned empty (e.g. image without OCR, or corrupt file),
+        # fall through to text-box input below rather than immediately erroring.
+
+    if not jd_content.strip() and jd_text and jd_text.strip():
+        print(f"[DEBUG /api/rank] falling back to jd_text ({len(jd_text.strip())} chars)")
+        jd_content = jd_text.strip()
 
     if not jd_content.strip():
-        raise HTTPException(400, "Job description is empty")
+        if jd_file and jd_file.filename:
+            ext = jd_file.filename.lower().rsplit(".", 1)[-1]
+            if ext in ("jpg", "jpeg", "png") and not HAS_OCR:
+                raise HTTPException(
+                    400,
+                    "Cannot read image job description: OCR (pytesseract + Pillow) is not installed. "
+                    "Please paste the job description text into the text box instead, or install OCR dependencies."
+                )
+        raise HTTPException(400, "Job description is empty — provide a file or paste text")
 
     if candidates_file and candidates_file.filename:
         cand_bytes = await candidates_file.read()
