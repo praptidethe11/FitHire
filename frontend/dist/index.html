@@ -179,12 +179,14 @@
             <div class="input-box">
                 <div class="label">Job Description</div>
                 <textarea id="jd-text" placeholder="Paste requirements here..."></textarea>
-                <div style="margin-top: 15px;">
+                <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
                     <input type="file" id="jd-file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png" style="display: none;">
-                    <div class="file-drop" onclick="document.getElementById('jd-file').click()" id="jd-drop">
+                    <div class="file-drop" onclick="document.getElementById('jd-file').click()" id="jd-drop" style="flex: 1;">
                         Upload JD (.pdf, .docx, .txt, .jpg, .png)
                     </div>
+                    <button id="jd-file-remove" type="button" title="Remove file" style="display: none; background: #050505; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; width: 38px; height: 38px; flex-shrink: 0; cursor: pointer; font-size: 16px; line-height: 1;">✕</button>
                 </div>
+                <div id="jd-file-hint" style="display: none; font-size: 11px; color: var(--muted); margin-top: 8px;">File and pasted text were both provided — the file will be used; remove it to use the pasted text instead.</div>
             </div>
             <div class="input-box">
                 <div class="label">Candidate Pool</div>
@@ -286,10 +288,28 @@
     }
 
     // File Handlers
+    function updateJdFileHint() {
+        const hasFile = !!document.getElementById('jd-file').files[0];
+        const hasText = !!document.getElementById('jd-text').value.trim();
+        document.getElementById('jd-file-hint').style.display = (hasFile && hasText) ? 'block' : 'none';
+    }
     document.getElementById('jd-file').onchange = (e) => {
         const file = e.target.files[0];
-        if (file) document.getElementById('jd-drop').textContent = file.name;
+        if (file) {
+            document.getElementById('jd-drop').textContent = file.name;
+            document.getElementById('jd-file-remove').style.display = 'inline-block';
+        }
+        updateJdFileHint();
     };
+    document.getElementById('jd-file-remove').onclick = (e) => {
+        e.stopPropagation();
+        const input = document.getElementById('jd-file');
+        input.value = '';
+        document.getElementById('jd-drop').textContent = 'Upload JD (.pdf, .docx, .txt, .jpg, .png)';
+        document.getElementById('jd-file-remove').style.display = 'none';
+        updateJdFileHint();
+    };
+    document.getElementById('jd-text').addEventListener('input', updateJdFileHint);
     document.getElementById('cand-file').onchange = (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -438,8 +458,13 @@
         if (!candFile && !state.demoCandidates) return alert('Please provide a Candidate Pool');
 
         const formData = new FormData();
+        // Always send jd_text if present — the backend prefers the file's
+        // extracted text but falls back to this if the file yields nothing
+        // (e.g. an image where OCR fails or isn't available server-side).
+        // Previously this used if/else, so jd_text was silently dropped
+        // whenever a file was attached, even with text typed in too.
         if (jdFile) formData.append('jd_file', jdFile);
-        else formData.append('jd_text', jdText);
+        if (jdText) formData.append('jd_text', jdText);
 
         if (candFile) formData.append('candidates_file', candFile);
         else formData.append('candidates_text', state.demoCandidates);
