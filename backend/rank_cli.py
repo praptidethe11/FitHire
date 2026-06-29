@@ -42,12 +42,12 @@ except ImportError:
 
 
 def load_jd(path: str) -> str:
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:
         return f.read()
 
 
 def stream_jsonl(path: str):
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -61,7 +61,7 @@ def load_candidates(path: str):
     if path.endswith(".jsonl"):
         return list(stream_jsonl(path))
     elif path.endswith(".json"):
-        with open(path) as f:
+        with open(path, encoding="utf-8-sig") as f:
             data = json.load(f)
         return data if isinstance(data, list) else [data]
     elif path.endswith(".csv"):

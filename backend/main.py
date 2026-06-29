@@ -427,70 +427,130 @@ class RankRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────
 def parse_jd_file(file_bytes: bytes, filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1]
-    if ext == "pdf":
-        if not HAS_PDF:
-            raise HTTPException(400, "PyPDF2 not installed")
-        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        return "\n".join(p.extract_text() or "" for p in reader.pages)
-    elif ext == "docx":
-        if not HAS_DOCX:
-            raise HTTPException(400, "python-docx not installed")
-        doc = docx.Document(io.BytesIO(file_bytes))
-        return "\n".join(p.text for p in doc.paragraphs)
-    elif ext in ("jpg", "jpeg", "png"):
-        if not HAS_OCR:
-            raise HTTPException(400, "OCR dependencies not installed")
-        image = Image.open(io.BytesIO(file_bytes))
-        return pytesseract.image_to_string(image)
-    elif ext in ("txt", "md"):
-        return file_bytes.decode("utf-8", errors="replace")
-    else:
-        return file_bytes.decode("utf-8", errors="replace")
+    try:
+        if ext == "pdf":
+            text_pages = []
+            
+            # Fallback 1: PyPDF2
+            if HAS_PDF:
+                try:
+                    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                    for p in reader.pages:
+                        t = p.extract_text()
+                        if t:
+                            text_pages.append(t)
+                except Exception as py_err:
+                    print(f"[WARN] PyPDF2 extraction failed: {py_err}")
+
+            # Fallback 2: PyMuPDF (fitz)
+            if not "".join(text_pages).strip():
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(stream=file_bytes, filetype="pdf")
+                    text_pages = []
+                    for page in doc:
+                        t = page.get_text()
+                        if t:
+                            text_pages.append(t)
+                except Exception as fitz_err:
+                    print(f"[WARN] PyMuPDF extraction failed: {fitz_err}")
+
+            # Fallback 3: pdfplumber
+            if not "".join(text_pages).strip():
+                try:
+                    import pdfplumber
+                    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                        text_pages = []
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                text_pages.append(t)
+                except Exception as plumber_err:
+                    print(f"[WARN] pdfplumber extraction failed: {plumber_err}")
+
+            # Fallback 4: OCR (pdf2image + pytesseract)
+            if not "".join(text_pages).strip() and HAS_OCR:
+                try:
+                    from pdf2image import convert_from_bytes
+                    images = convert_from_bytes(file_bytes)
+                    text_pages = []
+                    for img in images:
+                        t = pytesseract.image_to_string(img)
+                        if t:
+                            text_pages.append(t)
+                except Exception as ocr_err:
+                    print(f"[WARN] PDF OCR extraction failed: {ocr_err}")
+
+            final_text = "\n".join(text_pages)
+            if not final_text.strip():
+                raise HTTPException(400, "Could not extract any text from the PDF. It may be secured, corrupted, or scanned without OCR tools installed.")
+            return final_text
+        elif ext == "docx":
+            if not HAS_DOCX:
+                raise HTTPException(400, "python-docx library is not installed on the server.")
+            doc = docx.Document(io.BytesIO(file_bytes))
+            return "\n".join(p.text for p in doc.paragraphs)
+        elif ext in ("jpg", "jpeg", "png"):
+            if not HAS_OCR:
+                raise HTTPException(400, "OCR/Tesseract dependencies are not installed on the server.")
+            image = Image.open(io.BytesIO(file_bytes))
+            return pytesseract.image_to_string(image)
+        elif ext in ("txt", "md"):
+            return file_bytes.decode("utf-8-sig", errors="replace")
+        else:
+            return file_bytes.decode("utf-8-sig", errors="replace")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Error parsing job description file: {str(e)}")
 
 def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
     ext = filename.lower().rsplit(".", 1)[-1]
-    if ext == "jsonl":
-        candidates = []
-        for line in file_bytes.decode("utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if line:
-                try:
-                    candidates.append(json.loads(line))
-                except:
-                    pass
-        return candidates
-    elif ext == "json":
-        data = json.loads(file_bytes.decode("utf-8", errors="replace"))
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict):
-            for key in ("candidates", "data", "results"):
-                if key in data and isinstance(data[key], list):
-                    return data[key]
-            return [data]
-    elif ext == "csv":
-        df = pd.read_csv(io.BytesIO(file_bytes))
-        return df.to_dict(orient="records")
-    elif ext in ("xlsx", "xls"):
-        df = pd.read_excel(io.BytesIO(file_bytes))
-        return df.to_dict(orient="records")
-    else:
-        text = file_bytes.decode("utf-8", errors="replace")
-        try:
-            data = json.loads(text)
+    try:
+        if ext == "jsonl":
+            candidates = []
+            for line in file_bytes.decode("utf-8-sig", errors="replace").splitlines():
+                line = line.strip()
+                if line:
+                    try:
+                        candidates.append(json.loads(line))
+                    except:
+                        pass
+            return candidates
+        elif ext == "json":
+            data = json.loads(file_bytes.decode("utf-8-sig", errors="replace"))
             if isinstance(data, list):
                 return data
-        except:
-            pass
-        candidates = []
-        for line in text.splitlines():
-            line = line.strip()
-            if line:
-                try:
-                    candidates.append(json.loads(line))
-                except:
-                    pass
-        return candidates
+            elif isinstance(data, dict):
+                for key in ("candidates", "data", "results"):
+                    if key in data and isinstance(data[key], list):
+                        return data[key]
+                return [data]
+        elif ext == "csv":
+            df = pd.read_csv(io.BytesIO(file_bytes))
+            return df.to_dict(orient="records")
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(io.BytesIO(file_bytes))
+            return df.to_dict(orient="records")
+        else:
+            text = file_bytes.decode("utf-8-sig", errors="replace")
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    return data
+            except:
+                pass
+            candidates = []
+            for line in text.splitlines():
+                line = line.strip()
+                if line:
+                    try:
+                        candidates.append(json.loads(line))
+                    except:
+                        pass
+            return candidates
+    except Exception as e:
+        raise HTTPException(400, f"Error parsing candidate pool file: {str(e)}")
 
 # ──────────────────────────────────────────────────────────────
 # Phase 1 — Job Understanding (AI + Heuristic)
@@ -563,9 +623,23 @@ def extract_jd_heuristic(jd_text: str) -> Dict:
     text_lower = jd_text.lower()
     tokens = re.findall(r"[a-z0-9\+\#\.]+", text_lower)
 
+    # ── Role Title ────────────────────────────────────────────
+    role_title = "Software Engineer"
+    title_match = re.search(r"(?:job title|role|position)\s*[:]\s*(.*)", jd_text, re.IGNORECASE)
+    if title_match:
+        role_title = title_match.group(1).split("\n")[0].strip()
+    else:
+        lines = [l.strip() for l in jd_text.split("\n") if l.strip()]
+        if lines:
+            first_line = lines[0]
+            if len(first_line) < 100:
+                cleaned = re.sub(r"^(?:jd|job description|role|position)\s*[-—–:]*\s*", "", first_line, flags=re.IGNORECASE)
+                if cleaned.strip():
+                    role_title = cleaned.strip()
+
     # ── Experience range ──────────────────────────────────────
     years_min, years_max = 2, 10
-    range_match = re.search(r"(\d+)\s*[-–]\s*(\d+)\s*(?:years?|yrs?)", text_lower)
+    range_match = re.search(r"(\d+)\s*[-–—]\s*(\d+)\s*(?:years?|yrs?)", text_lower)
     if range_match:
         lo, hi = int(range_match.group(1)), int(range_match.group(2))
         if 1 <= lo <= 30 and 1 <= hi <= 30:
@@ -584,6 +658,10 @@ def extract_jd_heuristic(jd_text: str) -> Dict:
         seniority = "junior"
     elif any(w in text_lower for w in ["manager", "head of", "director", "vp"]):
         seniority = "manager"
+
+    # Adjust years_min for freshers
+    if seniority == "junior" and any(w in text_lower for w in ["fresher", "intern", "0 years", "0-"]):
+        years_min = 0
 
     # ── Leadership expectation ────────────────────────────────
     leadership_kw = ["lead a team", "manage engineers", "mentor", "people manager",
@@ -608,21 +686,31 @@ def extract_jd_heuristic(jd_text: str) -> Dict:
 
     # ── Skills ───────────────────────────────────────────────
     tech_pool = {
-        "python", "java", "javascript", "typescript", "go", "rust", "scala", "kotlin",
-        "react", "angular", "vue", "node", "django", "flask", "fastapi", "spring",
-        "pytorch", "tensorflow", "keras", "sklearn", "xgboost", "lightgbm",
-        "aws", "gcp", "azure", "docker", "kubernetes", "terraform", "ansible",
-        "sql", "postgres", "mysql", "mongodb", "redis", "elasticsearch",
-        "kafka", "spark", "airflow", "flink", "dbt",
+        "python", "java", "javascript", "typescript", "go", "rust", "scala", "kotlin", "c++", "c#", "c", "ruby", "php",
+        "react", "angular", "vue", "node", "django", "flask", "fastapi", "spring", "html", "css",
+        "pytorch", "tensorflow", "keras", "sklearn", "scikit-learn", "xgboost", "lightgbm", "numpy", "pandas", "scipy",
+        "aws", "gcp", "azure", "docker", "kubernetes", "terraform", "ansible", "jenkins", "ci/cd",
+        "sql", "postgres", "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sqlite",
+        "kafka", "spark", "airflow", "flink", "dbt", "hadoop",
         "llm", "rag", "embeddings", "faiss", "pinecone", "milvus", "weaviate", "qdrant",
-        "transformers", "bert", "gpt", "huggingface",
-        "mlflow", "wandb", "kubeflow", "sagemaker",
-        "git", "nlp", "deep learning", "machine learning", "ai",
+        "transformers", "bert", "gpt", "huggingface", "langchain", "llama",
+        "mlflow", "wandb", "kubeflow", "sagemaker", "mlops",
+        "git", "nlp", "deep learning", "machine learning", "ai", "computer vision", "data science",
     }
-    found_skills = [t for t in tokens if t in tech_pool]
+    found_skills = []
+    for tech in tech_pool:
+        if tech in ("c++", "c#"):
+            pattern = r'\b' + re.escape(tech)
+        elif tech.endswith('s') or tech in ("go", "r", "c"):
+            pattern = r'\b' + re.escape(tech) + r'\b'
+        else:
+            pattern = r'\b' + re.escape(tech) + r's?\b'
+        
+        if re.search(pattern, text_lower):
+            found_skills.append(tech)
 
     return {
-        "role_title": "Software Engineer",
+        "role_title": role_title,
         "seniority": seniority,
         "years_min": years_min,
         "years_max": years_max,
@@ -663,8 +751,8 @@ def normalize_candidate(raw: Dict) -> Dict:
                     return str(v).strip()
         return default
 
-    candidate_id = get("candidate_id", "id", "ID", "CandidateID", default=f"CAND_{abs(id(raw))}")
-    name = get("name", "Name", "full_name", "FullName", "anonymized_name", default="Unknown")
+    candidate_id = get("candidate_id", "id", "ID", "CandidateID", "candidateId", default=f"CAND_{abs(id(raw))}")
+    name = get("name", "Name", "full_name", "FullName", "anonymized_name", "candidate_name", "candidateName", "full name", "fullName", default="Unknown")
     headline = get("headline", "Headline", "title", "Title", "job_title", default="")
     summary = get("summary", "Summary", "about", "bio", "Bio", "description", default="")
     current_title = get("current_title", "CurrentTitle", "role", "Role", "position", "Position", default=headline)
@@ -672,11 +760,17 @@ def normalize_candidate(raw: Dict) -> Dict:
     location = get("location", "Location", "city", "City", default="")
 
     years_exp = 0.0
-    for k in ["years_of_experience", "years_experience", "experience", "YearsExperience", "total_experience", "exp"]:
+    for k in ["years_of_experience", "years_experience", "experience", "YearsExperience", "total_experience", "exp", "total_exp"]:
         v = raw.get(k)
         if v is not None:
+            val_str = str(v).strip().lower()
+            if val_str in ("fresher", "none", "nan", "null", "0"):
+                years_exp = 0.0
+                break
             try:
-                years_exp = float(str(v).replace("years", "").replace("yrs", "").strip())
+                # Clean up any trailing text like "years", "yrs", etc.
+                cleaned_val = re.sub(r'(?i)\s*(?:years?|yrs?|yr)\b.*', '', val_str).strip()
+                years_exp = float(cleaned_val)
                 break
             except:
                 pass
@@ -713,6 +807,18 @@ def normalize_candidate(raw: Dict) -> Dict:
             "duration_months": int(years_exp * 12),
         }]
 
+    # Normalize education to list of dicts
+    edu_raw = raw.get("education", raw.get("Education", []))
+    education = []
+    if isinstance(edu_raw, list):
+        for e in edu_raw:
+            if isinstance(e, dict):
+                education.append(e)
+            else:
+                education.append({"degree": str(e).strip()})
+    elif isinstance(edu_raw, str) and edu_raw.strip():
+        education.append({"degree": edu_raw.strip()})
+
     # Extract additional Phase 2 signals
     projects = raw.get("projects", raw.get("Projects", []))
     publications = raw.get("publications", raw.get("Publications", []))
@@ -733,7 +839,7 @@ def normalize_candidate(raw: Dict) -> Dict:
             "current_industry": get("current_industry", "industry", "Industry", default=""),
         },
         "career_history": career,
-        "education": raw.get("education", []) if isinstance(raw.get("education"), list) else [],
+        "education": education,
         "skills": skills,
         "certifications": raw.get("certifications", []) if isinstance(raw.get("certifications"), list) else [],
         "projects": projects if isinstance(projects, list) else [],
@@ -771,6 +877,18 @@ def build_candidate_text(c: Dict) -> str:
     for skill in c.get("skills", []):
         name = skill.get("name", "") if isinstance(skill, dict) else str(skill)
         parts.append(name)
+    for edu in c.get("education", []):
+        if isinstance(edu, dict):
+            parts.extend([
+                edu.get("degree", ""),
+                edu.get("field", ""),
+                edu.get("school", ""),
+                edu.get("institution", ""),
+                edu.get("major", ""),
+                edu.get("specialization", "")
+            ])
+        else:
+            parts.append(str(edu))
     for cert in c.get("certifications", []):
         parts.append(cert.get("name", "") if isinstance(cert, dict) else str(cert))
     for proj in c.get("projects", []):
@@ -875,11 +993,21 @@ def _skill_match(skill_l: str, skill_names: set, text_lower: str) -> float:
         for sn in normalized_names:
             if (canon in sn or sn in canon) and len(min(canon, sn, key=len)) > 3:
                 return 1.0
-    pattern = r'\b' + re.escape(canon) + r'\b'
+    if canon.endswith('s') or canon in ("go", "r", "c", "js", "ts", "py"):
+        pattern = r'\b' + re.escape(canon) + r'\b'
+    else:
+        pattern = r'\b' + re.escape(canon) + r's?\b'
+        
     if re.search(pattern, text_lower):
         return 0.6
-    if canon != skill_l and re.search(r'\b' + re.escape(skill_l) + r'\b', text_lower):
-        return 0.6
+        
+    if canon != skill_l:
+        if skill_l.endswith('s') or skill_l in ("go", "r", "c", "js", "ts", "py"):
+            pattern_raw = r'\b' + re.escape(skill_l) + r'\b'
+        else:
+            pattern_raw = r'\b' + re.escape(skill_l) + r's?\b'
+        if re.search(pattern_raw, text_lower):
+            return 0.6
     return 0.0
 
 def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_have: List[str], full_text: str) -> Tuple[float, List[str]]:
