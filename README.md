@@ -35,11 +35,7 @@ Instead of asking *"do these words match?"*, it asks: **"would this person actua
 
 ## Demo
 
-<p align="center">
-  <video width="100%" controls autoplay muted loop>
-    <source src="https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df" type="video/mp4">
-  </video>
-</p>
+[▶ Watch Demo](https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df)
 
 The demo walks through:
 - Landing on a resume-style homepage that scrolls down into the upload workflow
