@@ -139,12 +139,7 @@
         .compare-cell { padding: 20px; border-bottom: 1px solid var(--border); font-size: 14px; }
         .compare-head { font-weight: 700; color: var(--muted); text-transform: uppercase; font-size: 12px; }
 
-        /* Feature 2: Fallback Indicator */
-        #fallback-badge {
-            display: none; background: rgba(243, 18, 96, 0.1); color: var(--red);
-            border: 1px solid rgba(243, 18, 96, 0.2); padding: 5px 15px;
-            border-radius: 100px; font-size: 11px; margin-bottom: 20px; text-align: center;
-        }
+
         
         /* Feature 6: Fair Badge */
         .fair-badge {
@@ -174,15 +169,15 @@
 
 <div class="container-scroll">
     <div class="card" id="main-card">
-        <div id="fallback-badge">AI analysis unavailable - using heuristic parser</div>
+
         <div class="input-group">
             <div class="input-box">
                 <div class="label">Job Description</div>
                 <textarea id="jd-text" placeholder="Paste requirements here..."></textarea>
                 <div style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
-                    <input type="file" id="jd-file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png" style="display: none;">
+                    <input type="file" id="jd-file" accept=".pdf,.docx,.txt" style="display: none;">
                     <div class="file-drop" onclick="document.getElementById('jd-file').click()" id="jd-drop" style="flex: 1;">
-                        Upload JD (.pdf, .docx, .txt, .jpg, .png)
+                        Upload JD (.pdf, .docx, .txt)
                     </div>
                     <button id="jd-file-remove" type="button" title="Remove file" style="display: none; background: #050505; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; width: 38px; height: 38px; flex-shrink: 0; cursor: pointer; font-size: 16px; line-height: 1;">✕</button>
                 </div>
@@ -305,7 +300,7 @@
         e.stopPropagation();
         const input = document.getElementById('jd-file');
         input.value = '';
-        document.getElementById('jd-drop').textContent = 'Upload JD (.pdf, .docx, .txt, .jpg, .png)';
+        document.getElementById('jd-drop').textContent = 'Upload JD (.pdf, .docx, .txt)';
         document.getElementById('jd-file-remove').style.display = 'none';
         updateJdFileHint();
     };
@@ -482,8 +477,7 @@
             if (data.success) {
                 state.lastResults = data.results;
                 
-                // Feature 2: Show fallback badge if Claude failed
-                document.getElementById('fallback-badge').style.display = data.jd_analysis._using_fallback ? 'block' : 'none';
+
                 
                 const container = document.getElementById('results-container');
                 container.innerHTML = data.results.map(r => {

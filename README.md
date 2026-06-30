@@ -25,7 +25,7 @@ Not by matching keywords, but by understanding people.
 
 > Recruiters go through hundreds of profiles and still often miss the right person - not because the talent isn't there, but because keyword filters can't see what actually matters.
 
-**The Data & AI Challenge** asked for an AI system that ranks candidates the way a great recruiter would: by reading a job description and *understanding* what the role needs, looking at the full picture (career history, skills, behavioral signals, platform activity), and delivering a shortlist a recruiter can actually trust.
+**The Data & AI Challenge** asked for an AI system that ranks candidates the way a great recruiter would: by reading a job description and _understanding_ what the role needs, looking at the full picture (career history, skills, behavioral signals, platform activity), and delivering a shortlist a recruiter can actually trust.
 
 **FitHire** is that system.
 
@@ -38,6 +38,7 @@ Instead of asking **"do these words match?"**, it asks: **"would this person act
 [▶ Watch Demo](https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df)
 
 The demo walks through:
+
 - Landing on a resume-style homepage that scrolls down into the upload workflow
 - Uploading a Job Description (PDF / DOCX / TXT / paste / or even a photo of one)
 - Uploading a candidate pool (Excel / CSV / JSON / JSONL)
@@ -54,19 +55,19 @@ Traditional ATS tools score candidates with a single fixed formula - usually som
 FitHire instead runs a **JD-aware, per-candidate adaptive pipeline**:
 
 1. It reads the JD and infers what role is actually being hired for.
-2. It generates a *custom weight profile* for that specific role (a DevOps JD weights production signals and certifications heavily; a Manager JD weights leadership and career progression instead).
-3. For *each individual candidate*, if a signal is unavailable (e.g. no GitHub profile), its weight is redistributed across the candidate's other available signals rather than scored as a flat zero - so nobody is punished for a field that simply doesn't apply to them.
+2. It generates a _custom weight profile_ for that specific role (a DevOps JD weights production signals and certifications heavily; a Manager JD weights leadership and career progression instead).
+3. For _each individual candidate_, if a signal is unavailable (e.g. no GitHub profile), its weight is redistributed across the candidate's other available signals rather than scored as a flat zero - so nobody is punished for a field that simply doesn't apply to them.
 4. It blends keyword-based search (BM25) with semantic, meaning-based matching (sentence embeddings), so "AI Engineer" and "Machine Learning Engineer" are recognized as the same thing.
 5. Every score ships with a recruiter-readable explanation, not just a number.
 
 ---
 
 ## Industry Scope
- 
+
 Right now FitHire can process other job fields, but it is currently **optimized for engineering and technical hiring** - the role-detection model, weight amplifiers, and scoring heuristics in `main.py` are tuned for engineering archetypes (ML, backend, frontend, data, DevOps, security, management).
- 
+
 That said, the foundation underneath isn't engineering-specific. The AI JD parser (`analyze_jd_with_ai` / `extract_jd_heuristic`) extracts **generic hiring concepts**, not engineering-only ones:
- 
+
 - `role_title`
 - `must_have_skills`
 - `years_min` / `years_max`
@@ -76,8 +77,8 @@ That said, the foundation underneath isn't engineering-specific. The AI JD parse
 - `preferred_companies`
 - `domain_keywords`
 - `key_responsibilities`
-Because these fields are domain-agnostic, FitHire can already parse and rank candidates for non-engineering JDs - it just won't yet have a specialized weight profile or role detector tuned for, say, a Sales or Legal hire the way it does for an ML Engineer. See **Future Scope → Multi-Domain Recruitment Support** below for where this is headed.
- 
+  Because these fields are domain-agnostic, FitHire can already parse and rank candidates for non-engineering JDs - it just won't yet have a specialized weight profile or role detector tuned for, say, a Sales or Legal hire the way it does for an ML Engineer. See **Future Scope → Multi-Domain Recruitment Support** below for where this is headed.
+
 ---
 
 ## Core Features
@@ -118,58 +119,58 @@ FitHire is two layers of the same engine: a FastAPI brain (`main.py`) that does 
 
 ### `main.py` vs `rank_cli.py`
 
-| | `main.py` | `rank_cli.py` |
-|---|---|---|
-| Role | The chef - owns all the intelligence | The waiter - takes the order to the chef and brings results back |
-| FastAPI server | ✅ | ❌ |
-| JD parsing, candidate parsing, normalization | ✅ (owns it) | Calls into `main.py` |
-| Scoring & ranking logic | ✅ (owns it) | Calls into `main.py` |
-| OCR | ✅ | ❌ |
-| Frontend integration | ✅ | ❌ |
-| Bulk processing / CSV export for submission | Limited | ✅ |
+|                                              | `main.py`                            | `rank_cli.py`                                                    |
+| -------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| Role                                         | The chef - owns all the intelligence | The waiter - takes the order to the chef and brings results back |
+| FastAPI server                               | ✅                                   | ❌                                                               |
+| JD parsing, candidate parsing, normalization | ✅ (owns it)                         | Calls into `main.py`                                             |
+| Scoring & ranking logic                      | ✅ (owns it)                         | Calls into `main.py`                                             |
+| OCR                                          | ✅                                   | ❌                                                               |
+| Frontend integration                         | ✅                                   | ❌                                                               |
+| Bulk processing / CSV export for submission  | Limited                              | ✅                                                               |
 
 ---
 
 ## Scoring Pipeline in Detail
 
-| Stage | What happens |
-|---|---|
-| **Dependency loading** | Optional libraries (PyPDF2, python-docx, rank-bm25, sentence-transformers, pytesseract) are detected at startup; the system still runs with reduced capability if any are missing |
-| **Fairness filter** | Protected attributes (gender, age, religion, nationality, ethnicity, disability, sexual orientation, etc.) are stripped from every candidate before scoring begins |
-| **JD understanding** | AI mode extracts role title, experience range, must-have/nice-to-have skills, certifications, responsibilities, preferred companies, and soft skills; heuristic mode (regex + keyword extraction) is the automatic fallback when no AI key is configured |
-| **Dynamic weight generation** | Detects the role family from the JD (e.g. DevOps vs. People Manager vs. ML Engineer) and generates a custom weight profile instead of one-size-fits-all weights |
-| **Candidate normalization** | Resolves dozens of field-name synonyms into one schema, auto-detects resume sections from unstructured text, and infers years of experience from a title when it isn't stated explicitly |
-| **Adaptive weight redistribution** | Per candidate, any signal with no available data has its weight redistributed across the candidate's remaining signals instead of being scored as zero |
-| **Career progression analysis** | Evaluates tenure stability, job-hopping patterns, promotion trajectory, leadership language ("led", "mentored", "owned"), and architecture-ownership signals |
-| **Education scoring** | Compares candidate education against JD requirements, applying a penalty multiplier for under-qualification and a bonus for exceeding it |
-| **Three-layer scoring** | Combines everything into **Technical Fit**, **Career Fit**, and **Recruiter Fit** sub-scores plus a final weighted score |
-| **Confidence + explanation** | Computes a confidence score and generates a recruiter-readable reasoning string for every ranked candidate |
+| Stage                              | What happens                                                                                                                                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dependency loading**             | Optional libraries (PyPDF2, python-docx, rank-bm25, sentence-transformers, pytesseract) are detected at startup; the system still runs with reduced capability if any are missing                                                                        |
+| **Fairness filter**                | Protected attributes (gender, age, religion, nationality, ethnicity, disability, sexual orientation, etc.) are stripped from every candidate before scoring begins                                                                                       |
+| **JD understanding**               | AI mode extracts role title, experience range, must-have/nice-to-have skills, certifications, responsibilities, preferred companies, and soft skills; heuristic mode (regex + keyword extraction) is the automatic fallback when no AI key is configured |
+| **Dynamic weight generation**      | Detects the role family from the JD (e.g. DevOps vs. People Manager vs. ML Engineer) and generates a custom weight profile instead of one-size-fits-all weights                                                                                          |
+| **Candidate normalization**        | Resolves dozens of field-name synonyms into one schema, auto-detects resume sections from unstructured text, and infers years of experience from a title when it isn't stated explicitly                                                                 |
+| **Adaptive weight redistribution** | Per candidate, any signal with no available data has its weight redistributed across the candidate's remaining signals instead of being scored as zero                                                                                                   |
+| **Career progression analysis**    | Evaluates tenure stability, job-hopping patterns, promotion trajectory, leadership language ("led", "mentored", "owned"), and architecture-ownership signals                                                                                             |
+| **Education scoring**              | Compares candidate education against JD requirements, applying a penalty multiplier for under-qualification and a bonus for exceeding it                                                                                                                 |
+| **Three-layer scoring**            | Combines everything into **Technical Fit**, **Career Fit**, and **Recruiter Fit** sub-scores plus a final weighted score                                                                                                                                 |
+| **Confidence + explanation**       | Computes a confidence score and generates a recruiter-readable reasoning string for every ranked candidate                                                                                                                                               |
 
 ---
 
 ## Supported Formats
 
-| Job Description | Candidate Pool |
-|---|---|
-| PDF | JSON |
-| DOCX | JSONL |
-| TXT | CSV |
+| Job Description     | Candidate Pool       |
+| ------------------- | -------------------- |
+| PDF                 | JSON                 |
+| DOCX                | JSONL                |
+| TXT                 | CSV                  |
 | JPG / PNG (via OCR) | Excel (.xlsx / .xls) |
-| Paste directly | |
+| Paste directly      |                      |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | Single-page HTML/CSS/JS - resume-style landing page that scroll-reveals the upload workflow |
-| Backend | FastAPI |
-| Retrieval | BM25 (rank-bm25) for keyword search |
-| Semantic search | sentence-transformers (`all-MiniLM-L6-v2` bi-encoder) + cross-encoder re-ranking (`ms-marco-MiniLM-L-6-v2`) |
-| JD/resume parsing | PyPDF2, python-docx, pandas/openpyxl, pytesseract + Pillow for OCR |
-| AI reasoning | LLM-based JD analysis with a heuristic regex fallback when offline |
-| Export | CSV (challenge-required format) |
+| Layer             | Technology                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| Frontend          | Single-page HTML/CSS/JS - resume-style landing page that scroll-reveals the upload workflow                 |
+| Backend           | FastAPI                                                                                                     |
+| Retrieval         | BM25 (rank-bm25) for keyword search                                                                         |
+| Semantic search   | sentence-transformers (`all-MiniLM-L6-v2` bi-encoder) + cross-encoder re-ranking (`ms-marco-MiniLM-L-6-v2`) |
+| JD/resume parsing | PyPDF2, python-docx, pandas/openpyxl, pytesseract + Pillow for OCR                                          |
+| AI reasoning      | LLM-based JD analysis with a heuristic regex fallback when offline                                          |
+| Export            | CSV (challenge-required format)                                                                             |
 
 ---
 
@@ -231,11 +232,11 @@ python backend/rank_cli.py --jd data/sample_jd.txt --candidates data/sample_cand
 
 ## API Reference
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/rank` | POST | Upload a JD (file or pasted text) and a candidate pool (file or JSON text); returns the full ranked shortlist with score breakdowns |
-| `/api/export/csv` | POST / GET | Export a given set of ranked results to CSV |
-| `/api/health` | GET | Health check - reports which optional capabilities (BM25, transformers, OCR) are currently active |
+| Endpoint          | Method     | Description                                                                                                                         |
+| ----------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/rank`       | POST       | Upload a JD (file or pasted text) and a candidate pool (file or JSON text); returns the full ranked shortlist with score breakdowns |
+| `/api/export/csv` | POST / GET | Export a given set of ranked results to CSV                                                                                         |
+| `/api/health`     | GET        | Health check - reports which optional capabilities (BM25, transformers, OCR) are currently active                                   |
 
 ---
 
@@ -250,48 +251,48 @@ Built specifically for **The Data & AI Challenge**.
 ---
 
 ## Future Scope
- 
-FitHire's recruiter explanation engine and confidence scoring are already built (see Core Features above) - the roadmap below is everything *not* yet in the codebase.
- 
+
+FitHire's recruiter explanation engine and confidence scoring are already built (see Core Features above) - the roadmap below is everything _not_ yet in the codebase.
+
 **1. Multi-Domain Recruitment Support**
 Currently the system is optimized for engineering and technical roles. Future versions can include specialized ranking models for Law, Finance and Commerce, Healthcare, Marketing, Human Resources, and Sales and Consulting - each with its own customized scoring strategy and role-specific intelligence, building on the domain-agnostic JD parser described above.
- 
+
 **2. Learning from Recruiter Feedback**
 Introduce a feedback loop where the system learns from recruiter actions - shortlisted candidates, rejected candidates, interview selections, final hires - so the ranking model continuously improves and adapts to a company's actual hiring preferences over time.
- 
+
 **3. Integration with Professional Platforms**
 Integrate with [LinkedIn](https://www.linkedin.com), [GitHub](https://github.com), [LeetCode](https://leetcode.com), and [HackerRank](https://www.hackerrank.com) to automatically enrich candidate profiles with live coding activity, projects, certifications, and professional achievements, rather than relying solely on recruiter-supplied data.
- 
+
 **4. AI Interview Assistant**
 Extend the platform to automatically generate interview questions, create coding assessments, suggest case studies, and evaluate interview responses - turning FitHire from a candidate-ranking tool into an end-to-end hiring solution.
- 
+
 **5. Real-Time Market Intelligence**
 Analyze current hiring trends to recommend emerging skills, salary ranges, market demand, and skill shortages - helping recruiters write better job descriptions and set realistic hiring strategies.
- 
+
 **6. Bias Detection and Fairness Monitoring**
-The fairness engine already strips protected attributes (gender, age, religion, nationality, ethnicity, disability, etc.) before scoring. The next step is continuous *monitoring* on top of that - tracking outcomes for gender bias, age bias, educational bias, and institutional bias over time to support more inclusive hiring practices, not just point-in-time filtering.
- 
+The fairness engine already strips protected attributes (gender, age, religion, nationality, ethnicity, disability, etc.) before scoring. The next step is continuous _monitoring_ on top of that - tracking outcomes for gender bias, age bias, educational bias, and institutional bias over time to support more inclusive hiring practices, not just point-in-time filtering.
+
 **7. Video Resume and Portfolio Analysis**
 Future versions can evaluate video resumes, portfolios, presentations, design work, and research publications - particularly useful for creative and non-technical roles where a text resume undersells the candidate.
- 
+
 **8. Support for Multiple Languages**
 Enable resume parsing and ranking for resumes written in multiple languages, making the system viable for global recruitment rather than English-only pipelines.
- 
+
 **9. Predictive Hiring Analytics**
 Use historical hiring data to predict candidate success probability, retention likelihood, promotion potential, and cultural fit.
- 
+
 **10. Automated Candidate Outreach**
 Integrate with email and messaging systems to send interview invitations, schedule interviews, provide status updates, and automate recruiter communication end to end.
- 
+
 **11. Enterprise ATS Integration**
 Integrate with existing recruitment platforms such as [Workday](https://www.workday.com), [Greenhouse](https://www.greenhouse.com), and [Lever](https://www.lever.co), so FitHire can slot into a recruiter's existing tooling instead of running standalone.
- 
+
 **Also planned:** vector database support for million-scale candidate search, an LLM-powered recruiter copilot for follow-up questions like "why was this candidate selected over that one?", side-by-side candidate comparison dashboard improvements, and team collaboration / recruiter notes.
- 
+
 ---
- 
+
 ## Built for the Data & AI Challenge
- 
+
 **Hiring deserves more than keyword matching.**
- 
+
 FitHire helps recruiters spend less time searching and more time hiring the right people.

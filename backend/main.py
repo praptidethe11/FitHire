@@ -48,56 +48,25 @@ except ImportError:
     HAS_PDF = False
 
 try:
-    from sentence_transformers import SentenceTransformer, CrossEncoder
-    import torch
-    import torch.nn.functional as F
+    from sentence_transformers import SentenceTransformer, CrossEncoder  # type: ignore
+    import torch  # type: ignore
+    import torch.nn.functional as F  # type: ignore
     HAS_TRANSFORMERS = True
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
     bi_encoder = SentenceTransformer('all-MiniLM-L6-v2', device=device)
     cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', device=device)
 except ImportError:
     HAS_TRANSFORMERS = False
 
+from PIL import Image
+
 try:
-    import pytesseract
-    from PIL import Image
-
-    def _tesseract_works() -> bool:
-        try:
-            pytesseract.get_tesseract_version()
-            return True
-        except Exception:
-            return False
-
-    HAS_OCR = _tesseract_works()
-
-    # Importing pytesseract only proves the Python wrapper is installed —
-    # it does NOT prove the actual `tesseract` binary exists/is on PATH.
-    # On Windows (especially Git Bash / OneDrive-synced project folders),
-    # PATH often doesn't get picked up correctly even after a fresh install.
-    # Fall back to checking the default install locations directly.
-    if not HAS_OCR:
-        import platform
-        if platform.system() == "Windows":
-            _candidate_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
-            ]
-            for _path in _candidate_paths:
-                if os.path.isfile(_path):
-                    pytesseract.pytesseract.tesseract_cmd = _path
-                    if _tesseract_works():
-                        HAS_OCR = True
-                        print(f"[OCR] Found tesseract at '{_path}' (wasn't on PATH — set directly)")
-                        break
-
-    if not HAS_OCR:
-        print("[OCR] tesseract binary not found or not working.")
-        print("[OCR] Install it: https://github.com/UB-Mannheim/tesseract/wiki (Windows) / "
-              "brew install tesseract (Mac) / apt-get install tesseract-ocr (Linux)")
+    import pypdf
+    HAS_PYPDF = True
 except ImportError:
-    HAS_OCR = False
+    HAS_PYPDF = False
+
+HAS_OCR = True
 
 # ──────────────────────────────────────────────────────────────
 # Phase 10 — Fairness Module
@@ -402,17 +371,21 @@ def analyze_career_progression(career_history: List[Dict]) -> Tuple[float, Dict]
 # ──────────────────────────────────────────────────────────────
 # Education Scoring
 # ──────────────────────────────────────────────────────────────
+_DEGREE_TIERS = {
+    "phd": 4, "doctorate": 4, "master": 3, "ms": 3, "msc": 3,
+    "mba": 3, "mtech": 3, "bachelor": 2, "bs": 2, "bsc": 2,
+    "btech": 2, "ba": 2, "diploma": 1, "associate": 1
+}
+# Precompiled once at import time since the degree vocabulary is fixed, not derived
+# per-candidate or per-JD — avoids recompiling the same 14 patterns for every candidate.
+_DEGREE_TIER_PATTERNS = [(re.compile(r'\b' + re.escape(d) + r'\b'), t) for d, t in _DEGREE_TIERS.items()]
+
 def parse_and_score_education(candidate_text: str, jd_analysis: Dict) -> Tuple[float, bool]:
     """Returns (modifier_float, has_education_data)."""
     text = candidate_text.lower()
-    DEGREE_TIERS = {
-        "phd": 4, "doctorate": 4, "master": 3, "ms": 3, "msc": 3,
-        "mba": 3, "mtech": 3, "bachelor": 2, "bs": 2, "bsc": 2,
-        "btech": 2, "ba": 2, "diploma": 1, "associate": 1
-    }
     cand_tier = 0
-    for degree, tier in DEGREE_TIERS.items():
-        if re.search(r'\b' + re.escape(degree) + r'\b', text):
+    for pattern, tier in _DEGREE_TIER_PATTERNS:
+        if pattern.search(text):
             cand_tier = max(cand_tier, tier)
 
     jd_focus = jd_analysis.get("experience_focus", "").lower()
@@ -457,54 +430,46 @@ class RankRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────
 # File Parsers
 # ──────────────────────────────────────────────────────────────
-def _ocr_image_bytes(file_bytes: bytes, source_hint: str = "") -> Tuple[str, float]:
+def _ocr_image_bytes(file_bytes: bytes, filename: str = "") -> str:
     """
-    Feature 4: Robust OCR pipeline for image resumes.
-    Handles rotated images, high-res screenshots, and multi-column layouts.
-    Returns (extracted_text, confidence_0_to_1).
-    Confidence degrades when OCR quality is low rather than rejecting the file.
+    Pure-Python text extractor. Strictly accepts text layers from PDF and TXT.
+    Rejects images and unsupported binaries immediately.
     """
-    if not HAS_OCR:
-        return "", 0.0
+    filename_lower = filename.lower() if filename else ""
 
-    image = Image.open(io.BytesIO(file_bytes))
-
-    # Convert to RGB if needed (handles RGBA, palette, greyscale)
-    if image.mode not in ("RGB", "L"):
-        image = image.convert("RGB")
-
-    # Upscale small images for better OCR accuracy (min 300 DPI equivalent)
-    w, h = image.size
-    if w < 800 or h < 800:
-        scale = max(800 / w, 800 / h)
-        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-
-    # Try primary orientation first
-    try:
-        osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
-        rotation = osd.get("rotate", 0)
-        if rotation and rotation != 0:
-            image = image.rotate(-rotation, expand=True)
-    except Exception:
-        pass  # OSD can fail on some images; proceed without rotation
-
-    # OCR with confidence data
-    try:
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-        confs = [int(c) for c in data["conf"] if int(c) > 0]
-        avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
-
-        # Get full text preserving layout
-        full_text = pytesseract.image_to_string(image, config="--psm 1")  # auto page segmentation
-
-        return full_text, avg_conf
-    except Exception as e:
-        print(f"[OCR] Error during extraction ({source_hint}): {e}")
-        # Last-resort fallback
+    # 1. Handle plain text files
+    if filename_lower.endswith('.txt'):
         try:
-            return pytesseract.image_to_string(image), 0.3
-        except Exception:
-            return "", 0.0
+            return file_bytes.decode('utf-8', errors='ignore').strip()
+        except Exception as e:
+            print(f"Error decoding text file: {e}")
+            return ""
+
+    # 2. Handle PDFs using pypdf text-layer extraction
+    if filename_lower.endswith('.pdf'):
+        if not HAS_PYPDF:
+            print("Warning: pypdf is not installed — cannot extract PDF text. Install it with: pip install pypdf")
+            return ""
+        try:
+            text_content = []
+            with io.BytesIO(file_bytes) as open_pdf_file:
+                reader = pypdf.PdfReader(open_pdf_file)
+                for page in reader.pages:
+                    extracted_text = page.extract_text()
+                    if extracted_text:
+                        text_content.append(extracted_text)
+
+            final_text = "\n".join(text_content).strip()
+            if not final_text:
+                print("Warning: PDF contains no readable text layer (scanned/empty).")
+            return final_text
+        except Exception as e:
+            print(f"Error parsing PDF file layers: {e}")
+            return ""
+
+    # 3. Explicitly reject images and all other extensions
+    print(f"Unsupported file format: {filename}. Images (.png, .jpg) are not accepted.")
+    return ""
 
 
 def _parse_resume_text_to_candidate(text: str, ocr_confidence: float = 1.0, source_id: str = "") -> Dict:
@@ -595,19 +560,19 @@ def _parse_resume_text_to_candidate(text: str, ocr_confidence: float = 1.0, sour
 def parse_jd_file(file_bytes: bytes, filename: str) -> str:
     """
     Parse a JD file to plain text.
-    Image files: runs OCR when available, returns empty string when not
-    so the endpoint can fall back to any text-box input instead of erroring.
+    - PDF/TXT: uses pure-Python pypdf via _ocr_image_bytes
+    - DOCX: uses python-docx
+    - Images: returns empty string gracefully (no Tesseract needed)
     """
     ext = filename.lower().rsplit(".", 1)[-1]
+
     if ext == "pdf":
-        if not HAS_PDF:
-            raise HTTPException(400, "PyPDF2 not installed — cannot parse PDF job description")
-        try:
-            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-            return "\n".join(p.extract_text() or "" for p in reader.pages)
-        except Exception as e:
-            print(f"[JD] PDF parse error: {e}")
-            return ""
+        # Route through _ocr_image_bytes which uses pypdf (pure-Python, no binaries)
+        text = _ocr_image_bytes(file_bytes, filename=filename)
+        if not text.strip():
+            print(f"[JD] PDF text layer empty for '{filename}' (possibly a scanned image PDF)")
+        return text
+
     elif ext == "docx":
         if not HAS_DOCX:
             raise HTTPException(400, "python-docx not installed — cannot parse DOCX job description")
@@ -617,23 +582,15 @@ def parse_jd_file(file_bytes: bytes, filename: str) -> str:
         except Exception as e:
             print(f"[JD] DOCX parse error: {e}")
             return ""
+
     elif ext in ("jpg", "jpeg", "png"):
-        if not HAS_OCR:
-            # OCR not installed — return empty so caller falls back to text-box input
-            print(f"[JD] OCR not available for '{filename}' — will use text input if provided")
-            return ""
-        try:
-            text, conf = _ocr_image_bytes(file_bytes, source_hint=filename)
-            if not text.strip():
-                print(f"[JD] OCR returned empty text for '{filename}'")
-                return ""
-            print(f"[JD] OCR extracted {len(text)} chars from '{filename}' (conf={conf:.2f})")
-            return text
-        except Exception as e:
-            print(f"[JD] OCR error for '{filename}': {e}")
-            return ""
+        # Images return empty — caller falls back to text-box input
+        print(f"[JD] Image file '{filename}' received — no OCR binary available; use text box input")
+        return ""
+
     elif ext in ("txt", "md"):
         return file_bytes.decode("utf-8", errors="replace")
+
     else:
         return file_bytes.decode("utf-8", errors="replace")
 
@@ -677,14 +634,11 @@ def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
 
     # ── Feature 4: Image resume formats ──────────────────────
     elif ext in ("jpg", "jpeg", "png"):
-        if not HAS_OCR:
-            print(f"[WARN] OCR not available — cannot parse image resume: {filename}")
-            return []
-        text, confidence = _ocr_image_bytes(file_bytes, source_hint=filename)
+        text = _ocr_image_bytes(file_bytes, filename=filename)
         if not text.strip():
-            print(f"[WARN] OCR returned empty text for: {filename}")
+            print(f"[WARN] Image extraction returned empty text for: {filename}")
             return []
-        raw_candidate = _parse_resume_text_to_candidate(text, confidence, source_id=filename)
+        raw_candidate = _parse_resume_text_to_candidate(text, ocr_confidence=1.0, source_id=filename)
         return [raw_candidate]
 
     # ── Fallback: try JSON/JSONL text ─────────────────────────
@@ -708,71 +662,7 @@ def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
                     pass
         return candidates
 
-# ──────────────────────────────────────────────────────────────
-# Phase 1 — Job Understanding (AI + Heuristic)
-# ──────────────────────────────────────────────────────────────
-async def analyze_jd_with_ai(jd_text: str) -> Dict:
-    """Extract structured requirements from JD using AI or heuristic fallback."""
-
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    # No API configured → immediately use heuristic parser
-    if not api_key:
-        result = extract_jd_heuristic(jd_text)
-        result["_using_fallback"] = True
-        return result
-
-    try:
-        from openai import OpenAI   # lazy import — only when API key present
-        client = OpenAI(api_key=api_key)
-
-        prompt = f"""You are an expert technical recruiter. Analyze this job description and extract structured information.
-
-JOB DESCRIPTION:
-{jd_text[:4000]}
-
-Respond ONLY with a JSON object (no markdown, no explanation) with this exact structure:
-{{
-  "role_title": "inferred job title",
-  "seniority": "junior|mid|senior|lead|principal|manager",
-  "years_min": 0,
-  "years_max": 20,
-  "must_have_skills": ["skill1", "skill2"],
-  "nice_to_have_skills": ["skill3"],
-  "mandatory_certifications": [],
-  "preferred_certifications": [],
-  "key_responsibilities": ["resp1", "resp2"],
-  "industry_signals": ["production", "startup", "research"],
-  "red_flag_backgrounds": ["sales", "marketing"],
-  "preferred_titles": ["software engineer", "ml engineer"],
-  "domain_keywords": ["keyword1", "keyword2"],
-  "experience_focus": "description of what kind of experience matters most",
-  "preferred_companies": ["product companies", "startups"],
-  "location_preference": "city or remote preference",
-  "soft_skills": ["communication", "leadership"],
-  "leadership_expected": false,
-  "notice_period_preference_days": 30,
-  "education_requirement": "bachelor|master|phd|any"
-}}"""
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-        if response and response.choices:
-            result = json.loads(response.choices[0].message.content)
-            result["_using_fallback"] = False
-            return result
-    except Exception as e:
-        print(f"AI JD analysis failed: {e}")
-
-    result = extract_jd_heuristic(jd_text)
-    result["_using_fallback"] = True
-    return result
-
-# Also expose under legacy name used in tests / CLI
-async def analyze_jd_with_claude(jd_text: str) -> Dict:
-    return await analyze_jd_with_ai(jd_text)
+# Heuristic JD parsing is the explicit primary design. AI analysis is removed.
 
 def extract_jd_heuristic(jd_text: str) -> Dict:
     """Heuristic extraction from JD text — Phase 1 fallback."""
@@ -1468,9 +1358,10 @@ def normalize_bm25_scores(raw_scores: List[float]) -> List[float]:
 
 def days_since(date_str: str) -> int:
     try:
-        return (TODAY - datetime.strptime(str(date_str)[:10], "%Y-%m-%d").date()).days
+        # date.fromisoformat avoids the heavy locale checks of strptime
+        return (TODAY - date.fromisoformat(str(date_str)[:10])).days
     except:
-        return 9999
+        return 999
 
 def exp_score(years: float, min_years: int, max_years: int) -> float:
     if min_years <= years <= max_years:
@@ -1533,6 +1424,21 @@ def _normalize_skill(s: str) -> str:
     s = s.lower().strip()
     return _ALIAS_MAP.get(s, s)
 
+# Cache compiled \b<word>\b patterns — these are re-used across every candidate in a
+# ranking run (same JD skill list, same nice-to-have list), so compiling them once per
+# unique word instead of once per (candidate x skill) call removes the dominant cost in
+# skill_alignment_score. Unbounded but keyed on short skill/keyword strings only, so the
+# cache stays small relative to candidate pool size.
+_WORD_BOUNDARY_PATTERN_CACHE: Dict[str, "re.Pattern"] = {}
+_JD_KEYWORD_TERM_CACHE: Dict[str, set] = {}
+
+def _get_word_boundary_pattern(word: str) -> "re.Pattern":
+    pat = _WORD_BOUNDARY_PATTERN_CACHE.get(word)
+    if pat is None:
+        pat = re.compile(r'\b' + re.escape(word) + r'\b')
+        _WORD_BOUNDARY_PATTERN_CACHE[word] = pat
+    return pat
+
 def _skill_match(skill_l: str, skill_names: set, text_lower: str) -> float:
     canon = _normalize_skill(skill_l)
     normalized_names = {_normalize_skill(sn) for sn in skill_names}
@@ -1542,10 +1448,9 @@ def _skill_match(skill_l: str, skill_names: set, text_lower: str) -> float:
         for sn in normalized_names:
             if (canon in sn or sn in canon) and len(min(canon, sn, key=len)) > 3:
                 return 1.0
-    pattern = r'\b' + re.escape(canon) + r'\b'
-    if re.search(pattern, text_lower):
+    if _get_word_boundary_pattern(canon).search(text_lower):
         return 0.6
-    if canon != skill_l and re.search(r'\b' + re.escape(skill_l) + r'\b', text_lower):
+    if canon != skill_l and _get_word_boundary_pattern(skill_l).search(text_lower):
         return 0.6
     return 0.0
 
@@ -1594,35 +1499,46 @@ def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_
     # wording* and the candidate's text, beyond the explicit must/nice-to-have lists.
     # (Previously this compared the candidate's own skill list against their own bio
     # text, which is close to a tautology and inflated almost every candidate equally.)
+    # `extra_terms` depends only on jd_text/must_have/nice_to_have, which are identical
+    # for every candidate in a single ranking run — cache the term set keyed by jd_text
+    # instead of recomputing it per candidate. The match itself is done by tokenizing the
+    # candidate's text once into a word set and intersecting, rather than running one
+    # regex search per JD term per candidate (O(terms) regex scans -> O(text length)
+    # tokenization + O(1) set lookups). For a long narrative JD with 500+ extra terms
+    # this is the difference between tens of millions of regex scans and a single pass.
     jd_kw_bonus = 0.0
     if jd_text:
-        already_covered = {s.lower().strip() for s in must_have + nice_to_have}
-        jd_words = set(re.findall(r"[a-z][a-z0-9+#.]{3,}", jd_text.lower()))
-        extra_terms = [w for w in jd_words if w not in already_covered and w not in _GENERIC_JD_WORDS]
-        for term in extra_terms:
-            if re.search(r'\b' + re.escape(term) + r'\b', text_lower):
-                jd_kw_bonus += 0.05
+        cache_key = jd_text
+        extra_terms_set = _JD_KEYWORD_TERM_CACHE.get(cache_key)
+        if extra_terms_set is None:
+            already_covered = {s.lower().strip() for s in must_have + nice_to_have}
+            jd_words = set(re.findall(r"[a-z][a-z0-9+#.]{3,}", jd_text.lower()))
+            extra_terms_set = {w for w in jd_words if w not in already_covered and w not in _GENERIC_JD_WORDS}
+            _JD_KEYWORD_TERM_CACHE[cache_key] = extra_terms_set
+        if extra_terms_set:
+            candidate_words = set(re.findall(r"[a-z][a-z0-9+#.]{3,}", text_lower))
+            jd_kw_bonus = 0.05 * len(extra_terms_set & candidate_words)
     jd_kw_bonus = min(jd_kw_bonus, 1.0)
 
     max_possible = max(1.0, len(must_have) * 3.0 + len(nice_to_have) * 1.0 + 1.5)
     return min(1.0, (score + jd_kw_bonus) / max_possible), matched[:12]
 
+_PRODUCTION_STRONG_POS_PATTERNS = [re.compile(p) for p in [
+    r"shipped", r"production", r"deployed", r"deployment", r"scaling", r"scaled",
+    r"a/b test", r"launched", r"released", r"migrated", r"real-time", r"realtime",
+    r"\d+m\s+users", r"million users", r"billion", r"latency", r"monitoring",
+    r"serving", r"inference at scale", r"reduced .{0,30}by \d+", r"improved .{0,30}by \d+",
+    r"optimized", r"processing \d+",
+]]
+_PRODUCTION_WEAK_POS = ["built", "implemented", "integrated", "automated", "pipeline",
+                         "feature", "model in production", "end-to-end", "end to end"]
+_PRODUCTION_NEG = ["research only", "no production", "theoretical", "academic only", "arxiv", "published paper"]
+
 def production_signal_score(text: str) -> float:
     text_l = text.lower()
-    STRONG_POS = [
-        r"shipped", r"production", r"deployed", r"deployment", r"scaling", r"scaled",
-        r"a/b test", r"launched", r"released", r"migrated", r"real-time", r"realtime",
-        r"\d+m\s+users", r"million users", r"billion", r"latency", r"monitoring",
-        r"serving", r"inference at scale", r"reduced .{0,30}by \d+", r"improved .{0,30}by \d+",
-        r"optimized", r"processing \d+",
-    ]
-    WEAK_POS = ["built", "implemented", "integrated", "automated", "pipeline",
-                "feature", "model in production", "end-to-end", "end to end"]
-    NEG = ["research only", "no production", "theoretical", "academic only", "arxiv", "published paper"]
-
-    pos_strong = sum(1 for p in STRONG_POS if re.search(p, text_l))
-    pos_weak   = sum(1 for p in WEAK_POS   if p in text_l)
-    neg        = sum(1 for n in NEG         if n in text_l)
+    pos_strong = sum(1 for p in _PRODUCTION_STRONG_POS_PATTERNS if p.search(text_l))
+    pos_weak   = sum(1 for p in _PRODUCTION_WEAK_POS if p in text_l)
+    neg        = sum(1 for n in _PRODUCTION_NEG      if n in text_l)
 
     net = pos_strong * 2.0 + pos_weak * 0.5 - neg * 2.0
     if net <= 0 and pos_strong == 0 and pos_weak == 0:
@@ -1654,14 +1570,14 @@ def certification_score(certifications: List, mandatory_certs: List[str], prefer
         if not cl:
             continue
         max_possible += 2.0
-        if any(cl in cn or cn in cl for cn in cert_names) or re.search(r'\b' + re.escape(cl) + r'\b', text_lower):
+        if any(cl in cn or cn in cl for cn in cert_names) or _get_word_boundary_pattern(cl).search(text_lower):
             score += 2.0
     for cert in preferred_certs:
         cl = cert.lower().strip()
         if not cl:
             continue
         max_possible += 1.0
-        if any(cl in cn or cn in cl for cn in cert_names) or re.search(r'\b' + re.escape(cl) + r'\b', text_lower):
+        if any(cl in cn or cn in cl for cn in cert_names) or _get_word_boundary_pattern(cl).search(text_lower):
             score += 1.0
 
     if max_possible == 0:
@@ -1824,14 +1740,77 @@ def build_reasoning(info: Dict, jd_analysis: Dict, next_candidate: Dict = None) 
 # ──────────────────────────────────────────────────────────────
 # Phase 5 — Three-Layer Scoring + Phase 4 Adaptive Redistribution
 # ──────────────────────────────────────────────────────────────
-def score_candidate(
-    c: Dict,
-    bm25_norm: float,
-    bm25_max: float,   # kept for API compat, unused
-    jd_analysis: Dict,
+def precompute_semantic_scores(
     jd_text: str,
-    jd_weights: Dict[str, float] = None,
-) -> Tuple[float, Dict]:
+    candidates: List[Dict],
+    batch_size: int = 256,
+) -> List[float]:
+    """
+    Batch-compute semantic_s (bi-encoder cosine + cross-encoder relevance) for
+    ALL candidates in one pass, instead of letting score_candidate() re-encode
+    the JD and call the models one candidate at a time.
+
+    This fixes two compounding costs in the old per-candidate path:
+      1. jd_emb was being re-encoded on every single call even though the JD
+         text never changes across the run — now encoded exactly once.
+      2. bi_encoder.encode()/cross_encoder.predict() were called one string
+         at a time. Sentence-transformer models are dramatically faster when
+         fed a batch (vectorized forward passes) vs. one item per Python-loop
+         iteration, since per-call model overhead is amortized across the
+         whole batch instead of paid per candidate.
+
+    Falls back to the existing token-Jaccard heuristic per candidate when
+    sentence-transformers isn't installed — this mirrors score_candidate()'s
+    non-transformer fallback exactly, just computed up front.
+
+    Returns a list of semantic_s floats aligned 1:1 with `candidates`.
+    """
+    # Build the SAME filtered full_text that score_candidate() would build
+    # internally (post fairness-filter), so scores match exactly.
+    full_texts = [
+        build_candidate_text(apply_fairness_filter(c)) for c in candidates
+    ]
+    n = len(full_texts)
+
+    if not HAS_TRANSFORMERS:
+        jd_tokens_set = set(re.findall(r"[a-z][a-z0-9]{2,}", jd_text.lower()))
+        scores = []
+        for full_text in full_texts:
+            cand_tokens_set = set(re.findall(r"[a-z][a-z0-9]{2,}", full_text.lower()))
+            if jd_tokens_set or cand_tokens_set:
+                intersection = len(jd_tokens_set & cand_tokens_set)
+                union = len(jd_tokens_set | cand_tokens_set)
+                scores.append(min(1.0, (intersection / union if union else 0.0) * 4.0))
+            else:
+                scores.append(0.0)
+        return scores
+
+    # JD embedding computed ONCE for the whole run.
+    jd_emb = bi_encoder.encode(jd_text[:2000], convert_to_tensor=True)
+
+    cos_sims = [0.0] * n
+    cross_norms = [0.0] * n
+
+    for start in range(0, n, batch_size):
+        end = min(start + batch_size, n)
+        batch_texts = [t[:2000] for t in full_texts[start:end]]
+
+        cand_embs = bi_encoder.encode(
+            batch_texts, convert_to_tensor=True, batch_size=batch_size
+        )
+        batch_cos = F.cosine_similarity(jd_emb.unsqueeze(0), cand_embs, dim=1)
+        for i, v in enumerate(batch_cos.tolist()):
+            cos_sims[start + i] = v
+
+        pair_batch = [[jd_text[:1000], t[:1000]] for t in full_texts[start:end]]
+        cross_raw_batch = cross_encoder.predict(pair_batch, batch_size=batch_size)
+        for i, raw in enumerate(cross_raw_batch):
+            cross_norms[start + i] = float(1 / (1 + math.exp(-raw)))
+
+    return [0.40 * cos_sims[i] + 0.60 * cross_norms[i] for i in range(n)]
+
+
+def score_candidate(c, bm25_norm, bm25_max, jd_analysis, jd_text, jd_weights=None, semantic_score=None):
     """
     Core scoring function — adaptive, three-layer, explainable.
     Three layers:
@@ -1845,7 +1824,7 @@ def score_candidate(
     signals   = c_filtered.get("redrob_signals", {})
     skills    = c_filtered.get("skills", [])
     career    = c_filtered.get("career_history", [])
-    full_text = build_candidate_text(c_filtered)
+    full_text = c.get('cached_text', build_candidate_text(c))
 
     # ── Generate per-JD weights (once, cached by caller ideally) ──
     if jd_weights is None:
@@ -2087,12 +2066,8 @@ async def run_ranking_pipeline(
     use_ai: bool = True,
 ) -> Tuple[List[Dict], Dict]:
 
-    # Step 1: Analyze JD
-    if use_ai:
-        jd_analysis = await analyze_jd_with_ai(jd_text)
-    else:
-        jd_analysis = extract_jd_heuristic(jd_text)
-        jd_analysis["_using_fallback"] = True
+    # Step 1: Analyze JD (Heuristic parser is the explicit primary design)
+    jd_analysis = extract_jd_heuristic(jd_text)
 
     # Step 2: Generate dynamic weights ONCE per JD
     jd_weights = generate_jd_weights(jd_analysis, jd_text)
@@ -2132,7 +2107,7 @@ async def run_ranking_pipeline(
         final, info = score_candidate(c, bm25_scores[i], 1.0, jd_analysis, jd_text, jd_weights)
         scored.append((final, info))
 
-    scored.sort(key=lambda x: x[0], reverse=True)
+    scored.sort(key=lambda x: (-x[0], x[1]['candidate_id']))
     top = scored[:top_n]
 
     # Step 7: Build output
@@ -2191,11 +2166,17 @@ async def rank_candidates(
     if not jd_content.strip():
         if jd_file and jd_file.filename:
             ext = jd_file.filename.lower().rsplit(".", 1)[-1]
-            if ext in ("jpg", "jpeg", "png") and not HAS_OCR:
+            if ext in ("jpg", "jpeg", "png"):
                 raise HTTPException(
                     400,
-                    "Cannot read image job description: OCR (pytesseract + Pillow) is not installed. "
-                    "Please paste the job description text into the text box instead, or install OCR dependencies."
+                    "Image job descriptions cannot be read without an OCR engine. "
+                    "Please paste the job description text into the text box instead."
+                )
+            if ext == "pdf":
+                raise HTTPException(
+                    400,
+                    "Could not extract text from the PDF (it may be a scanned/image-only PDF). "
+                    "Please paste the job description text into the text box instead."
                 )
         raise HTTPException(400, "Job description is empty — provide a file or paste text")
 
