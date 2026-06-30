@@ -249,12 +249,6 @@ def main():
     parser.add_argument("--jd", required=True, help="Path to job description (TXT/DOCX/PDF)")
     parser.add_argument("--out", default="ranked_candidates.csv", help="Output CSV path")
     parser.add_argument("--top", type=int, default=100, help="Number of candidates to shortlist")
-    # Compliance note: the ranking step (this CLI) must not call hosted LLM APIs per the
-    # hackathon's compute constraints. Heuristic JD analysis is therefore the DEFAULT, not
-    # an opt-out — running this command with no flags, exactly as documented in the README,
-    # can never trigger a hosted API call even if an API key happens to be present in the
-    # environment. --use-ai is an explicit opt-in for local/dev exploration only and must
-    # not be used for the submission run.
     parser.add_argument("--use-ai", action="store_true",
                          help="Opt in to hosted LLM JD analysis (DEV/EXPLORATION ONLY — "
                               "not permitted for the actual submission run; the ranking "
