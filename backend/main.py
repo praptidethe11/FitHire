@@ -18,8 +18,6 @@ import re
 import csv
 import json
 import io
-import time
-import tempfile
 import math
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Tuple
@@ -27,7 +25,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -493,7 +491,6 @@ def _ocr_image_bytes(file_bytes: bytes, source_hint: str = "") -> Tuple[str, flo
     # OCR with confidence data
     try:
         data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-        words = [w for w, c in zip(data["text"], data["conf"]) if w.strip() and int(c) > 0]
         confs = [int(c) for c in data["conf"] if int(c) > 0]
         avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
 
@@ -1215,7 +1212,12 @@ def normalize_candidate(raw: Dict) -> Dict:
     Feature 6: Synonym recognition.
     Feature 7: No fabrication — missing fields get safe defaults, weights redistribute.
     """
-    # Fast path: already in normalized profile format
+    # Fast path: already has a "profile" dict, so we trust profile.* fields
+    # (current_title, current_company, etc.) as-is rather than re-deriving them.
+    # However, top-level fields like skills/certifications/education can still be
+    # under non-canonical synonym names (e.g. "technical_skills" instead of "skills")
+    # even when a "profile" dict is present — so we still run synonym resolution
+    # for those, rather than returning immediately and silently dropping them.
     if "profile" in raw and isinstance(raw.get("profile"), dict):
         c = raw.copy()
         if "candidate_id" not in c:
@@ -1223,6 +1225,44 @@ def normalize_candidate(raw: Dict) -> Dict:
         # Still run career entry normalization on existing profile
         if "career_history" in c and isinstance(c["career_history"], list):
             c["career_history"] = [_normalize_career_entry(e) for e in c["career_history"]]
+        else:
+            career_raw = _resolve_list(raw, "career_history")
+            if career_raw:
+                c["career_history"] = [_normalize_career_entry(e) for e in career_raw]
+
+        # Skills — resolve via synonyms if not already a populated top-level "skills" list
+        if not c.get("skills"):
+            skills_raw = _resolve_field(raw, "skills")
+            if skills_raw is not None:
+                c["skills"] = _normalize_skills_field(skills_raw)
+
+        # Certifications — resolve via synonyms (list form or delimited string form)
+        if not c.get("certifications"):
+            certs_raw = _resolve_list(raw, "certifications")
+            if not certs_raw:
+                cert_raw = _resolve_field(raw, "certifications")
+                if isinstance(cert_raw, str) and cert_raw.strip():
+                    certs_raw = [{"name": cs.strip()} for cs in re.split(r"[,;|\n]", cert_raw) if cs.strip()]
+            if certs_raw:
+                c["certifications"] = certs_raw
+
+        # Education / projects / publications / awards — same synonym fallback
+        for field in ("education", "projects", "publications", "awards"):
+            if not c.get(field):
+                resolved = _resolve_list(raw, field)
+                if resolved:
+                    c[field] = resolved
+
+        # Open-source / LinkedIn links
+        if not c.get("open_source"):
+            os_val = _resolve_str(raw, "open_source")
+            if os_val:
+                c["open_source"] = os_val
+        if not c.get("linkedin"):
+            li_val = _resolve_str(raw, "linkedin")
+            if li_val:
+                c["linkedin"] = li_val
+
         return c
 
     # ── Identity ──────────────────────────────────────────────
@@ -1509,7 +1549,16 @@ def _skill_match(skill_l: str, skill_names: set, text_lower: str) -> float:
         return 0.6
     return 0.0
 
-def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_have: List[str], full_text: str) -> Tuple[float, List[str]]:
+_GENERIC_JD_WORDS = {
+    "the", "and", "for", "you", "are", "with", "this", "that", "your", "our", "will",
+    "have", "has", "from", "team", "work", "role", "job", "years", "year", "experience",
+    "skills", "ability", "strong", "good", "excellent", "looking", "candidate", "candidates",
+    "should", "must", "ideal", "preferred", "responsibilities", "requirements", "about",
+    "company", "join", "etc", "such", "into", "their", "they", "them", "well", "than",
+    "also", "use", "using", "used", "all", "can", "who", "what", "when", "where", "how",
+}
+
+def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_have: List[str], full_text: str, jd_text: str = "") -> Tuple[float, List[str]]:
     skill_names = set()
     for s in candidate_skills:
         raw = s.get("name", "") if isinstance(s, dict) else str(s)
@@ -1541,11 +1590,19 @@ def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_
             score += 0.5
             matched.append(f"~{skill}")
 
+    # JD keyword bonus — reward genuine overlap between *the job description's own
+    # wording* and the candidate's text, beyond the explicit must/nice-to-have lists.
+    # (Previously this compared the candidate's own skill list against their own bio
+    # text, which is close to a tautology and inflated almost every candidate equally.)
     jd_kw_bonus = 0.0
-    for sn in skill_names:
-        if len(sn) > 3 and re.search(r'\b' + re.escape(sn) + r'\b', text_lower):
-            jd_kw_bonus += 0.15
-    jd_kw_bonus = min(jd_kw_bonus, 1.5)
+    if jd_text:
+        already_covered = {s.lower().strip() for s in must_have + nice_to_have}
+        jd_words = set(re.findall(r"[a-z][a-z0-9+#.]{3,}", jd_text.lower()))
+        extra_terms = [w for w in jd_words if w not in already_covered and w not in _GENERIC_JD_WORDS]
+        for term in extra_terms:
+            if re.search(r'\b' + re.escape(term) + r'\b', text_lower):
+                jd_kw_bonus += 0.05
+    jd_kw_bonus = min(jd_kw_bonus, 1.0)
 
     max_possible = max(1.0, len(must_have) * 3.0 + len(nice_to_have) * 1.0 + 1.5)
     return min(1.0, (score + jd_kw_bonus) / max_possible), matched[:12]
@@ -1572,6 +1629,45 @@ def production_signal_score(text: str) -> float:
         return 0.45
     return max(0.0, min(1.0, net / 12.0))
 
+def certification_score(certifications: List, mandatory_certs: List[str], preferred_certs: List[str], full_text: str) -> float:
+    """
+    Score certification alignment against JD requirements.
+    Returns 0-1. Falls back to a neutral score when the JD names no specific
+    certifications, but still gives modest credit for having any at all.
+    """
+    cert_names = set()
+    for cert in certifications:
+        raw = cert.get("name", "") if isinstance(cert, dict) else str(cert)
+        raw = raw.lower().strip()
+        if raw:
+            cert_names.add(raw)
+
+    text_lower = full_text.lower()
+
+    if not mandatory_certs and not preferred_certs:
+        # JD didn't name specific certifications — reward having verifiable ones at all
+        return min(1.0, 0.5 + 0.15 * len(cert_names)) if cert_names else 0.5
+
+    score, max_possible = 0.0, 0.0
+    for cert in mandatory_certs:
+        cl = cert.lower().strip()
+        if not cl:
+            continue
+        max_possible += 2.0
+        if any(cl in cn or cn in cl for cn in cert_names) or re.search(r'\b' + re.escape(cl) + r'\b', text_lower):
+            score += 2.0
+    for cert in preferred_certs:
+        cl = cert.lower().strip()
+        if not cl:
+            continue
+        max_possible += 1.0
+        if any(cl in cn or cn in cl for cn in cert_names) or re.search(r'\b' + re.escape(cl) + r'\b', text_lower):
+            score += 1.0
+
+    if max_possible == 0:
+        return 0.5
+    return min(1.0, score / max_possible)
+
 def company_type_score(company: str, preferred_companies: List[str], jd_text: str) -> float:
     c = company.lower()
     jd_l = jd_text.lower()
@@ -1582,8 +1678,11 @@ def company_type_score(company: str, preferred_companies: List[str], jd_text: st
                      "cred", "phonepe", "paytm", "freshworks", "zoho", "browserstack"}
     prefers_product = "product company" in jd_l or "not service" in jd_l or "not consulting" in jd_l
     prefers_startup = "startup" in jd_l or "fast-growing" in jd_l or "early stage" in jd_l
+    known_startupish = {"razorpay", "swiggy", "zomato", "meesho", "zepto", "cred", "phonepe",
+                         "browserstack", "freshworks"}
     if any(sc in c for sc in service_cos): return 0.3 if prefers_product else 0.6
-    if any(pc in c for pc in known_product): return 1.0
+    if prefers_startup and any(sk in c for sk in known_startupish): return 1.0
+    if any(pc in c for pc in known_product): return 0.8 if prefers_startup else 1.0
     return 0.72
 
 def engagement_score(signals: Dict) -> float:
@@ -1674,6 +1773,7 @@ def build_reasoning(info: Dict, jd_analysis: Dict, next_candidate: Dict = None) 
     if bd["notice_period"]      >= 0.85: strengths.append("Quick joiner")
     if bd["production_signals"] >= 0.70: strengths.append("Proven production experience")
     if bd.get("github_oss", 0)  >= 0.50: strengths.append("Active open-source presence")
+    if bd.get("certifications", 0) >= 0.75: strengths.append("Certifications aligned with role requirements")
     if info["signals"].get("github_score", -1) > 60: strengths.append("Strong GitHub activity")
     # Layer-level strengths
     if bd.get("technical_fit", 0) >= 0.78: strengths.append(f"High technical fit ({bd['technical_fit']*100:.0f}%)")
@@ -1758,7 +1858,7 @@ def score_candidate(
     # 1. Skill alignment
     skill_s, matched_skills = skill_alignment_score(
         skills, jd_analysis.get("must_have_skills", []),
-        jd_analysis.get("nice_to_have_skills", []), full_text,
+        jd_analysis.get("nice_to_have_skills", []), full_text, jd_text,
     )
 
     # 2. Experience fit
@@ -1818,6 +1918,14 @@ def score_candidate(
         jd_analysis.get("red_flag_backgrounds", []),
     )
 
+    # 13. Certifications (was previously weighted but never scored — now wired in)
+    cert_s = certification_score(
+        c_filtered.get("certifications", []),
+        jd_analysis.get("mandatory_certifications", []),
+        jd_analysis.get("preferred_certifications", []),
+        full_text,
+    )
+
     # ═══════════════════════════════════════════════════════════
     # PHASE 4 — Detect available signals per candidate
     # ═══════════════════════════════════════════════════════════
@@ -1847,7 +1955,7 @@ def score_candidate(
 
     # ── Technical Fit ─────────────────────────────────────────
     # Signals: skills, semantic, production, bm25, github/oss
-    tech_total_w = w["skill_alignment"] + w["semantic_match"] + w["production_signals"] + w["bm25_match"] + w["github_oss"]
+    tech_total_w = w["skill_alignment"] + w["semantic_match"] + w["production_signals"] + w["bm25_match"] + w["github_oss"] + w["certifications"]
     if tech_total_w > 0:
         technical_fit = (
             w["skill_alignment"]    * skill_s
@@ -1855,6 +1963,7 @@ def score_candidate(
             + w["production_signals"] * ship_s
             + w["bm25_match"]       * bm25_s
             + w["github_oss"]       * github_s
+            + w["certifications"]   * cert_s
         ) / tech_total_w
     else:
         technical_fit = 0.5
@@ -1895,8 +2004,12 @@ def score_candidate(
     else:
         base = (technical_fit + career_fit + recruiter_fit) / 3.0
 
-    # Education as multiplicative modifier (PhD for PhD role → small uplift)
-    base = max(0.0, min(1.0, base * edu_mod))
+    # Education as multiplicative modifier (PhD for PhD role → small uplift).
+    # Only apply when we actually found education data to compare — otherwise this
+    # silently penalized every candidate with no parseable education info (edu_mod
+    # defaults to 0.95), which contradicts the "never penalize missing data" design.
+    edu_multiplier = edu_mod if has_edu else 1.0
+    base = max(0.0, min(1.0, base * edu_multiplier))
 
     # Micro-bonuses: open-to-work, github
     gh_b     = github_bonus(signals)
@@ -1928,6 +2041,7 @@ def score_candidate(
         "title_relevance":    round(title_s,        4),
         "engagement":         round(eng,            4),
         "github_oss":         round(github_s,       4),
+        "certifications":     round(cert_s,         4),
         # Three-layer scores
         "technical_fit":      round(technical_fit,  4),
         "career_fit":         round(career_fit,     4),
@@ -2059,13 +2173,6 @@ async def rank_candidates(
     top_n: int = Form(20),
     use_ai: bool = Form(True),
 ):
-    # ── DEBUG: log exactly what the client actually sent ──
-    # Temporary diagnostic — remove once the JD-empty bug is confirmed fixed.
-    print(f"[DEBUG /api/rank] jd_file={'present, filename='+repr(jd_file.filename) if jd_file else 'MISSING'} "
-          f"| jd_text={'MISSING/None' if jd_text is None else repr(jd_text[:60])} "
-          f"| candidates_file={'present' if candidates_file and candidates_file.filename else 'MISSING'} "
-          f"| candidates_text={'present, len='+str(len(candidates_text)) if candidates_text else 'MISSING'}")
-
     # ── JD resolution: file → OCR/parse → fallback to text box ──
     # Priority: file parse result if non-empty, then text-box input.
     # This handles: (a) image file with OCR, (b) file parse fails/empty → text box,
@@ -2074,14 +2181,11 @@ async def rank_candidates(
 
     if jd_file and jd_file.filename:
         jd_bytes = await jd_file.read()
-        print(f"[DEBUG /api/rank] read {len(jd_bytes)} bytes from jd_file '{jd_file.filename}'")
         jd_content = parse_jd_file(jd_bytes, jd_file.filename)
-        print(f"[DEBUG /api/rank] parse_jd_file returned {len(jd_content)} chars")
         # If file parse returned empty (e.g. image without OCR, or corrupt file),
         # fall through to text-box input below rather than immediately erroring.
 
     if not jd_content.strip() and jd_text and jd_text.strip():
-        print(f"[DEBUG /api/rank] falling back to jd_text ({len(jd_text.strip())} chars)")
         jd_content = jd_text.strip()
 
     if not jd_content.strip():
@@ -2140,7 +2244,7 @@ def _make_csv_response(results: List[Dict]):
         # Core signal breakdown
         "skill_alignment_%", "experience_fit_%", "career_progression_%", "notice_period_%",
         "semantic_match_%", "bm25_match_%", "production_signals_%", "company_fit_%",
-        "title_relevance_%", "engagement_%", "github_oss_%",
+        "title_relevance_%", "engagement_%", "github_oss_%", "certifications_%",
         # Three-layer scores
         "technical_fit_%", "career_fit_%", "recruiter_fit_%",
     ])
@@ -2159,7 +2263,7 @@ def _make_csv_response(results: List[Dict]):
             pct(bd.get("semantic_match")), pct(bd.get("bm25_match")),
             pct(bd.get("production_signals")), pct(bd.get("company_fit")),
             pct(bd.get("title_relevance")), pct(bd.get("engagement")),
-            pct(bd.get("github_oss")),
+            pct(bd.get("github_oss")), pct(bd.get("certifications")),
             pct(bd.get("technical_fit")), pct(bd.get("career_fit")), pct(bd.get("recruiter_fit")),
         ])
     output.seek(0)
