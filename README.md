@@ -36,7 +36,9 @@ Instead of asking *"do these words match?"*, it asks: **"would this person actua
 ## Demo
 
 <p align="center">
-  <img width="1920" alt="FitHire walkthrough" src="https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df" />
+  <video width="100%" controls autoplay muted loop>
+    <source src="https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df" type="video/mp4">
+  </video>
 </p>
 
 The demo walks through:
