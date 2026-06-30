@@ -18,18 +18,15 @@ import re
 import csv
 import json
 import io
-import time
-import tempfile
 import math
 from datetime import date, datetime
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Tuple
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 try:
     from rank_bm25 import BM25Okapi
@@ -64,6 +61,14 @@ try:
     import pytesseract
     from PIL import Image
     HAS_OCR = True
+    
+    # Auto-configure tesseract path on Windows if not in PATH but in default program files location
+    import sys
+    import shutil
+    if sys.platform.startswith("win"):
+        default_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if not shutil.which("tesseract") and os.path.exists(default_path):
+            pytesseract.pytesseract.tesseract_cmd = default_path
 except ImportError:
     HAS_OCR = False
 
@@ -412,15 +417,6 @@ app.add_middleware(
 )
 
 TODAY = date.today()
-
-# ──────────────────────────────────────────────────────────────
-# Pydantic Models
-# ──────────────────────────────────────────────────────────────
-class RankRequest(BaseModel):
-    jd_text: str
-    candidates_json: str
-    top_n: int = 20
-    use_ai: bool = True
 
 # ──────────────────────────────────────────────────────────────
 # File Parsers
