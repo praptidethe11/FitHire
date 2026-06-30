@@ -29,7 +29,7 @@ Not by matching keywords, but by understanding people.
 
 **FitHire** is that system.
 
-Instead of asking *"do these words match?"*, it asks: **"would this person actually succeed in this role?"**
+Instead of asking **"do these words match?"**, it asks: **"would this person actually succeed in this role?"**
 
 ---
 
