@@ -61,6 +61,25 @@ FitHire instead runs a **JD-aware, per-candidate adaptive pipeline**:
 
 ---
 
+## Industry Scope
+ 
+Right now FitHire can process other job fields, but it is currently **optimized for engineering and technical hiring** — the role-detection model, weight amplifiers, and scoring heuristics in `main.py` are tuned for engineering archetypes (ML, backend, frontend, data, DevOps, security, management).
+ 
+That said, the foundation underneath isn't engineering-specific. The AI JD parser (`analyze_jd_with_ai` / `extract_jd_heuristic`) extracts **generic hiring concepts**, not engineering-only ones:
+ 
+- `role_title`
+- `must_have_skills`
+- `years_min` / `years_max`
+- `mandatory_certifications`
+- `soft_skills`
+- `education_requirement`
+- `preferred_companies`
+- `domain_keywords`
+- `key_responsibilities`
+Because these fields are domain-agnostic, FitHire can already parse and rank candidates for non-engineering JDs — it just won't yet have a specialized weight profile or role detector tuned for, say, a Sales or Legal hire the way it does for an ML Engineer. See **Future Scope → Multi-Domain Recruitment Support** below for where this is headed.
+ 
+---
+
 ## Core Features
 
 ✔ AI-powered Job Description understanding (LLM mode with heuristic regex fallback when no API key is present)
@@ -230,19 +249,49 @@ Built specifically for **The Data & AI Challenge**.
 
 ---
 
-## Future Improvements
-
-- 🔹 Vector database support for million-scale candidate search
-- 🔹 LLM-powered recruiter copilot ("why was this candidate selected over that one?")
-- 🔹 Side-by-side candidate comparison dashboard improvements
-- 🔹 ATS integrations (Greenhouse, Lever, Workday)
-- 🔹 Formal fairness & bias auditing reports
-- 🔹 Team collaboration and recruiter notes
-
+## Future Scope
+ 
+FitHire's recruiter explanation engine and confidence scoring are already built (see Core Features above) — the roadmap below is everything *not* yet in the codebase.
+ 
+**1. Multi-Domain Recruitment Support**
+Currently the system is optimized for engineering and technical roles. Future versions can include specialized ranking models for Law, Finance and Commerce, Healthcare, Marketing, Human Resources, and Sales and Consulting — each with its own customized scoring strategy and role-specific intelligence, building on the domain-agnostic JD parser described above.
+ 
+**2. Learning from Recruiter Feedback**
+Introduce a feedback loop where the system learns from recruiter actions — shortlisted candidates, rejected candidates, interview selections, final hires — so the ranking model continuously improves and adapts to a company's actual hiring preferences over time.
+ 
+**3. Integration with Professional Platforms**
+Integrate with [LinkedIn](https://www.linkedin.com), [GitHub](https://github.com), [LeetCode](https://leetcode.com), and [HackerRank](https://www.hackerrank.com) to automatically enrich candidate profiles with live coding activity, projects, certifications, and professional achievements, rather than relying solely on recruiter-supplied data.
+ 
+**4. AI Interview Assistant**
+Extend the platform to automatically generate interview questions, create coding assessments, suggest case studies, and evaluate interview responses — turning FitHire from a candidate-ranking tool into an end-to-end hiring solution.
+ 
+**5. Real-Time Market Intelligence**
+Analyze current hiring trends to recommend emerging skills, salary ranges, market demand, and skill shortages — helping recruiters write better job descriptions and set realistic hiring strategies.
+ 
+**6. Bias Detection and Fairness Monitoring**
+The fairness engine already strips protected attributes (gender, age, religion, nationality, ethnicity, disability, etc.) before scoring. The next step is continuous *monitoring* on top of that — tracking outcomes for gender bias, age bias, educational bias, and institutional bias over time to support more inclusive hiring practices, not just point-in-time filtering.
+ 
+**7. Video Resume and Portfolio Analysis**
+Future versions can evaluate video resumes, portfolios, presentations, design work, and research publications — particularly useful for creative and non-technical roles where a text resume undersells the candidate.
+ 
+**8. Support for Multiple Languages**
+Enable resume parsing and ranking for resumes written in multiple languages, making the system viable for global recruitment rather than English-only pipelines.
+ 
+**9. Predictive Hiring Analytics**
+Use historical hiring data to predict candidate success probability, retention likelihood, promotion potential, and cultural fit.
+ 
+**10. Automated Candidate Outreach**
+Integrate with email and messaging systems to send interview invitations, schedule interviews, provide status updates, and automate recruiter communication end to end.
+ 
+**11. Enterprise ATS Integration**
+Integrate with existing recruitment platforms such as [Workday](https://www.workday.com), [Greenhouse](https://www.greenhouse.com), and [Lever](https://www.lever.co), so FitHire can slot into a recruiter's existing tooling instead of running standalone.
+ 
+**Also planned:** vector database support for million-scale candidate search, an LLM-powered recruiter copilot for follow-up questions like "why was this candidate selected over that one?", side-by-side candidate comparison dashboard improvements, and team collaboration / recruiter notes.
+ 
 ---
-
+ 
 ## Built for the Data & AI Challenge
-
+ 
 **Hiring deserves more than keyword matching.**
-
+ 
 FitHire helps recruiters spend less time searching and more time hiring the right people.
