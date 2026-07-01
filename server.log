@@ -1,0 +1,13 @@
+INFO:     Will watch for changes in these directories: ['/home/ubuntu/FitHire/FitHire']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [4974] using WatchFiles
+INFO:     Started server process [4976]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     10.234.112.1:47128 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     10.234.112.1:44524 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47764 - "HEAD /data/sample_jd.txt HTTP/1.1" 200 OK
+INFO:     10.234.112.1:51308 - "GET / HTTP/1.1" 200 OK
+INFO:     10.234.112.1:50934 - "GET / HTTP/1.1" 304 Not Modified
+INFO:     10.234.112.1:50940 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     10.234.112.1:47992 - "GET /data/sample_candidates.json HTTP/1.1" 304 Not Modified

@@ -1,0 +1,26 @@
+Senior Machine Learning Engineer
+
+We're building the AI infrastructure behind a fast-growing fintech startup.
+You'll join a small team of 5 engineers and own the recommendation and fraud detection ML pipelines end to end.
+
+What you'll do:
+- Design, build, and ship production ML systems at scale
+- Build vector search and retrieval pipelines using Faiss/Pinecone/Qdrant
+- Fine-tune LLMs and build RAG-based applications
+- Own A/B testing and model evaluation (NDCG, MRR, AUC)
+- Deploy and monitor models using MLflow, Kubernetes, and Docker
+- Work directly with the product team to define features
+
+What we're looking for:
+- 5-8 years of ML engineering experience in production environments (not research)
+- Strong Python, PyTorch, and HuggingFace Transformers skills
+- Experience with vector databases and semantic search
+- Product company experience strongly preferred (not services/consulting)
+- GitHub activity and open source contributions are a huge plus
+
+Nice to have:
+- Experience with Kafka, Spark, or Airflow
+- MLOps tooling: MLflow, Weights and Biases, Kubeflow
+- Background in recommendation systems or search ranking
+
+Notice period: Prefer 30 days or less. Hybrid work from Bangalore.
