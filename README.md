@@ -162,50 +162,50 @@ FitHire consists of two interconnected layers: a core FastAPI backend processing
 
 ### main.py vs rank_cli.py
 
-| | `main.py` | `rank_cli.py` |
-|---|---|---|
-| Role | The chef - owns all the intelligence | The waiter - takes the order to the chef and brings results back |
-| FastAPI server | ✅ | ❌ |
-| JD parsing, candidate parsing, normalization | ✅ (owns it) | Calls into `main.py` |
-| Scoring & ranking logic | ✅ (owns it) | Calls into `main.py` |
-| Frontend integration | ✅ | ❌ |
-| Bulk processing / CSV export for submission | Limited | ✅ |
+|                                              | `main.py`                            | `rank_cli.py`                                                    |
+| -------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| Role                                         | The chef - owns all the intelligence | The waiter - takes the order to the chef and brings results back |
+| FastAPI server                               | ✅                                   | ❌                                                               |
+| JD parsing, candidate parsing, normalization | ✅ (owns it)                         | Calls into `main.py`                                             |
+| Scoring & ranking logic                      | ✅ (owns it)                         | Calls into `main.py`                                             |
+| Frontend integration                         | ✅                                   | ❌                                                               |
+| Bulk processing / CSV export for submission  | Limited                              | ✅                                                               |
 
 ### Scoring Pipeline in Detail
 
-| Stage | What happens |
-|---|---|
-| Dependency loading | Optional libraries (PyPDF2, python-docx, rank-bm25, sentence-transformers) are detected at startup; the system still runs with reduced capability if any are missing |
-| Fairness filter | Protected attributes (gender, age, religion, nationality, ethnicity, disability, sexual orientation, etc.) are stripped from every candidate before scoring begins |
-| JD understanding | AI mode extracts role title, experience range, must-have/nice-to-have skills, certifications, responsibilities, preferred companies, and soft skills; heuristic mode (regex + keyword extraction) is the automatic fallback when no AI key is configured |
-| Dynamic weight generation | Detects the role family from the JD (e.g. DevOps vs. People Manager vs. ML Engineer) and generates a custom weight profile instead of one-size-fits-all weights |
-| Candidate normalization | Resolves dozens of field-name synonyms into one schema, auto-detects resume sections from unstructured text, and infers years of experience from a title when it isn't stated explicitly |
-| Adaptive weight redistribution | Per candidate, any signal with no available data has its weight redistributed across the candidate's remaining signals instead of being scored as zero |
-| Career progression analysis | Evaluates tenure stability, job-hopping patterns, promotion trajectory, leadership language ("led", "mentored", "owned"), and architecture-ownership signals |
-| Education scoring | Compares candidate education against JD requirements, applying a penalty multiplier for under-qualification and a bonus for exceeding it |
-| Three-layer scoring | Combines everything into Technical Fit, Career Fit, and Recruiter Fit sub-scores plus a final weighted score |
-| Confidence + explanation | Computes a confidence score and generates a recruiter-readable reasoning string for every ranked candidate |
+| Stage                          | What happens                                                                                                                                                                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependency loading             | Optional libraries (PyPDF2, python-docx, rank-bm25, sentence-transformers) are detected at startup; the system still runs with reduced capability if any are missing                                                                                     |
+| Fairness filter                | Protected attributes (gender, age, religion, nationality, ethnicity, disability, sexual orientation, etc.) are stripped from every candidate before scoring begins                                                                                       |
+| JD understanding               | AI mode extracts role title, experience range, must-have/nice-to-have skills, certifications, responsibilities, preferred companies, and soft skills; heuristic mode (regex + keyword extraction) is the automatic fallback when no AI key is configured |
+| Dynamic weight generation      | Detects the role family from the JD (e.g. DevOps vs. People Manager vs. ML Engineer) and generates a custom weight profile instead of one-size-fits-all weights                                                                                          |
+| Candidate normalization        | Resolves dozens of field-name synonyms into one schema, auto-detects resume sections from unstructured text, and infers years of experience from a title when it isn't stated explicitly                                                                 |
+| Adaptive weight redistribution | Per candidate, any signal with no available data has its weight redistributed across the candidate's remaining signals instead of being scored as zero                                                                                                   |
+| Career progression analysis    | Evaluates tenure stability, job-hopping patterns, promotion trajectory, leadership language ("led", "mentored", "owned"), and architecture-ownership signals                                                                                             |
+| Education scoring              | Compares candidate education against JD requirements, applying a penalty multiplier for under-qualification and a bonus for exceeding it                                                                                                                 |
+| Three-layer scoring            | Combines everything into Technical Fit, Career Fit, and Recruiter Fit sub-scores plus a final weighted score                                                                                                                                             |
+| Confidence + explanation       | Computes a confidence score and generates a recruiter-readable reasoning string for every ranked candidate                                                                                                                                               |
 
 ### Supported Formats
 
 | Job Description | Candidate Pool |
-|---|---|
-| PDF | JSON |
-| DOCX | JSONL |
-| TXT | CSV |
-| Paste directly | — |
+| --------------- | -------------- |
+| PDF             | JSON           |
+| DOCX            | JSONL          |
+| TXT             | CSV            |
+| Paste directly  | —              |
 
 ### Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | Single-page HTML/CSS/JS - resume-style landing page that scroll-reveals the upload workflow |
-| Backend | FastAPI |
-| Retrieval | BM25 (rank-bm25) for keyword search |
-| Semantic search | sentence-transformers (all-MiniLM-L6-v2 bi-encoder) + cross-encoder re-ranking (ms-marco-MiniLM-L-6-v2) |
-| JD/resume parsing | PyPDF2, python-docx, pandas/openpyxl |
-| AI reasoning | LLM-based JD analysis with a heuristic regex fallback when offline |
-| Export | CSV (challenge-required format) |
+| Layer             | Technology                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------- |
+| Frontend          | Single-page HTML/CSS/JS - resume-style landing page that scroll-reveals the upload workflow             |
+| Backend           | FastAPI                                                                                                 |
+| Retrieval         | BM25 (rank-bm25) for keyword search                                                                     |
+| Semantic search   | sentence-transformers (all-MiniLM-L6-v2 bi-encoder) + cross-encoder re-ranking (ms-marco-MiniLM-L-6-v2) |
+| JD/resume parsing | PyPDF2, python-docx, pandas/openpyxl                                                                    |
+| AI reasoning      | LLM-based JD analysis with a heuristic regex fallback when offline                                      |
+| Export            | CSV (challenge-required format)                                                                         |
 
 ---
 
@@ -328,11 +328,11 @@ A successful run prints: `Submission is valid.`
 
 ## API Reference
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/rank` | POST | Upload a JD (file or pasted text) and a candidate pool (file or JSON text); returns the full ranked shortlist with score breakdowns |
-| `/api/export/csv` | POST / GET | Export a given set of ranked results to CSV |
-| `/api/health` | GET | Health check - reports which optional capabilities (BM25, transformers) are currently active |
+| Endpoint          | Method     | Description                                                                                                                         |
+| ----------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/rank`       | POST       | Upload a JD (file or pasted text) and a candidate pool (file or JSON text); returns the full ranked shortlist with score breakdowns |
+| `/api/export/csv` | POST / GET | Export a given set of ranked results to CSV                                                                                         |
+| `/api/health`     | GET        | Health check - reports which optional capabilities (BM25, transformers) are currently active                                        |
 
 ---
 
