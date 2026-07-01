@@ -443,110 +443,6 @@ def parse_and_score_education(candidate_text: str, jd_analysis: Dict) -> Tuple[f
         return 1.08, True
     return 1.0, True
 
-# ==============================================================================
-# OPTIMIZED SEMANTIC SCORING PIPELINE FOR HACKATHON COMPLIANCE
-# ==============================================================================
-
-def precompute_semantic_scores(
-    candidates: List[Dict[Any, Any]], 
-    jd_text: str, 
-    top_indices: List[int], 
-    deadline: float,
-    bi_encoder_name: str = "all-MiniLM-L6-v2",
-    cross_encoder_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    target_threads: int = 4
-) -> Tuple[Dict[int, float], Dict[int, float]]:
-    """
-    Computes semantic scores using pre-downloaded bi-encoders and cross-encoders.
-    Uses micro-batching and rigorous torch inference isolation to keep execution 
-    well under the 300s wall-clock hackathon budget.
-    """
-    bi_scores = {}
-    cross_scores = {}
-    
-    if not HAS_TRANSFORMERS:
-        print("[WARN] Transformers not available. Falling back to heuristic scoring.")
-        return bi_scores, cross_scores
-
-    # Configure and verify CPU parallelism parameters
-    torch.set_num_threads(target_threads)
-    if hasattr(torch, "set_num_interop_threads"):
-        torch.set_num_interop_threads(1)
-        
-    print(f"[DEBUG] Active PyTorch Threads immediately before loading: {torch.get_num_threads()}")
-
-    try:
-        # Load models explicitly to CPU with offline weights
-        print("[AI Setup] Loading Bi-Encoder model to CPU...")
-        bi_model = SentenceTransformer(bi_encoder_name, device="cpu")
-        bi_model.eval()
-        
-        print("[AI Setup] Loading Cross-Encoder model to CPU...")
-        cross_model = CrossEncoder(cross_encoder_name, device="cpu")
-        cross_model.model.eval()  # Force underlying PyTorch NN to evaluation mode
-    except Exception as e:
-        print(f"[ERROR] Failed to load local weights: {e}. Falling back to heuristics.")
-        return bi_scores, cross_scores
-
-    # Isolate all calculations inside inference mode to eliminate gradient tracking overhead
-    with torch.inference_mode(), torch.no_grad():
-        print(f"[DEBUG] Executing inference with threads: {torch.get_num_threads()}")
-        
-        # --- PHASE 1: Bi-Encoder Embeddings ---
-        if time.time() >= deadline:
-            print("[DEADLINE] No budget left for Bi-Encoder phase.")
-            return bi_scores, cross_scores
-            
-        print("[AI Inference] Computing Bi-Encoder match scores...")
-        jd_embedding = bi_model.encode(jd_text, convert_to_tensor=True, show_progress_bar=False)
-        
-        # Use a localized micro-batch size of 64 to optimize L3 cache reuse
-        bi_batch_size = 64
-        for i in range(0, len(top_indices), bi_batch_size):
-            if time.time() >= deadline:
-                print(f"[DEADLINE] Bi-Encoder computation truncated at index {i}/{len(top_indices)}")
-                break
-                
-            batch_idxs = top_indices[i : i + bi_batch_size]
-            batch_texts = [candidates[idx].get('cached_text', '') for idx in batch_idxs]
-            
-            cand_embeddings = bi_model.encode(batch_texts, convert_to_tensor=True, show_progress_bar=False)
-            # Compute cosine similarities via dot product on normalized tensors
-            similarities = torch.nn.functional.cosine_similarity(jd_embedding.unsqueeze(0), cand_embeddings)
-            
-            for idx, sim in zip(batch_idxs, similarities.tolist()):
-                bi_scores[idx] = float(sim)
-
-        # --- PHASE 2: Cross-Encoder High-Fidelity Scoring ---
-        print("[AI Inference] Computing Cross-Encoder re-ranking scores...")
-        # Reduce batch size to 32 for highly granular deadline checks and lower memory footprint
-        cross_batch_size = 32
-        
-        for i in range(0, len(top_indices), cross_batch_size):
-            # Check deadline before processing each micro-batch
-            if time.time() >= deadline:
-                print(f"[DEADLINE] Cross-Encoder loop broke at index {i}/{len(top_indices)} to guarantee runtime bounds.")
-                break
-                
-            batch_idxs = top_indices[i : i + cross_batch_size]
-            
-            # Construct sequence pairs: (Job Description, Candidate Experience Summary)
-            pairs = [(jd_text, candidates[idx].get('cached_text', '')) for idx in batch_idxs]
-            
-            # Execute predictions directly through the evaluated PyTorch backend
-            predictions = cross_model.predict(pairs, batch_size=cross_batch_size, show_progress_bar=False)
-            
-            for idx, score in zip(batch_idxs, predictions):
-                cross_scores[idx] = float(score)
-
-    return bi_scores, cross_scores
-
-# Existing line in your main.py:
-app = FastAPI(
-    title="FitHire — Adaptive Recruiter Intelligence Engine",
-    version="3.0.0"
-)
-
 # ──────────────────────────────────────────────────────────────
 # App Setup
 # ──────────────────────────────────────────────────────────────
@@ -2313,10 +2209,65 @@ async def run_ranking_pipeline(
     else:
         bm25_scores = [0.0] * len(candidates)
 
-    # Step 6: Score all candidates (pass pre-computed jd_weights)
+    # Step 6: Score candidates.
+    #
+    # PERF FIX: this loop used to call score_candidate() for every candidate
+    # with semantic_score=None. Whenever semantic_score is None,
+    # score_candidate() falls into its per-candidate semantic branch, which
+    # re-encodes the JD with the bi-encoder AND calls the cross-encoder --
+    # unbatched, once per candidate. For a 300-candidate request that's 300
+    # separate cross-encoder forward passes (the expensive model here),
+    # which is what actually blew the 2-5s budget. The models were already
+    # loaded once at import time (see the module-level `bi_encoder` /
+    # `cross_encoder` globals above) -- reloading was never the problem;
+    # calling them unbatched, on every candidate, every request, was.
+    #
+    # Fix mirrors the CLI's strategy (rank_cli.py + precompute_semantic_scores
+    # below) but funnels much harder, since the web app handles ~300
+    # candidates and must respond in single-digit seconds, not 100K
+    # candidates in 5 minutes:
+    #   1. Rank all candidates with the BM25 score already computed above
+    #      (free -- no model calls).
+    #   2. Only send the top FUNNEL_SIZE (30-50) candidates into the real
+    #      bi-encoder + cross-encoder pipeline, batched, via
+    #      precompute_semantic_scores().
+    #   3. Everyone outside the funnel gets the cheap token-Jaccard heuristic
+    #      semantic score (the same fallback used when transformers aren't
+    #      installed at all) instead of a real model call.
+    for c in candidates:
+        c['cached_text'] = c.get('cached_text') or build_candidate_text(c)
+
+    FUNNEL_SIZE = min(50, len(candidates))
+    jd_tokens_set = set(re.findall(r"[a-z][a-z0-9]{2,}", jd_text.lower()))
+
+    prelim_order = sorted(range(len(candidates)), key=lambda i: -bm25_scores[i])
+    funnel_indices = prelim_order[:FUNNEL_SIZE]
+    funnel_set = set(funnel_indices)
+
+    semantic_scores = [0.0] * len(candidates)
+
+    # Generous per-request deadline for the model pass. If it somehow runs
+    # long (cold start, unusually large candidate texts, etc.) whatever
+    # isn't finished falls back to the heuristic instead of hanging the
+    # request past the 2-5s target.
+    deadline = time.time() + 20.0
+
+    if HAS_TRANSFORMERS and funnel_indices:
+        funnel_candidates = [candidates[i] for i in funnel_indices]
+        funnel_scores = precompute_semantic_scores(jd_text, funnel_candidates, deadline=deadline)
+        for idx, s in zip(funnel_indices, funnel_scores):
+            semantic_scores[idx] = s
+
+    for i, c in enumerate(candidates):
+        if i not in funnel_set:
+            semantic_scores[i] = _heuristic_semantic_score(jd_tokens_set, c['cached_text'])
+
     scored = []
     for i, c in enumerate(candidates):
-        final, info = score_candidate(c, bm25_scores[i], 1.0, jd_analysis, jd_text, jd_weights)
+        final, info = score_candidate(
+            c, bm25_scores[i], 1.0, jd_analysis, jd_text, jd_weights,
+            semantic_score=semantic_scores[i],
+        )
         scored.append((final, info))
 
     scored.sort(key=lambda x: (-x[0], x[1]['candidate_id']))

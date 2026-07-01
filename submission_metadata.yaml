@@ -1,0 +1,118 @@
+# Redrob Hackathon - Submission Metadata Template
+#
+# Copy this file to your repo root as `submission_metadata.yaml` and fill it in.
+# The fields here should match what you submit via the portal at upload time.
+# Stage 3 review uses this file to verify your portal metadata.
+
+# ============================================================================
+# Team identity
+# ============================================================================
+team_name: "sus" # Used in leaderboard and announcements
+
+primary_contact:
+  name: "Prapti Vivek Dethe"
+  email: "praptidethe12@gmail.com" # Used for all organizer communication
+  phone: "+91-7506996096" # Used for top-50 / top-10 outreach
+
+team_members:
+  - name: "Rajit Prabhu"
+    email: "rajitprabhu03@gmail.com"
+    role: "Backend" # Optional, e.g. "Team Lead", "Backend", "Data"
+  - name: "Vedant Rechwad"
+    email: "vedantrechwad@gmail.com"
+    role: "Backend"
+  # Add more members as needed; solo participants list just one member
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: "https://github.com/praptidethe11/FitHire.git"
+# Required. Must be reachable. Private repos OK if you can grant organizer
+# access at Stage 3 (the email to add will be communicated then).
+
+sandbox_link: "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"
+# Required. A working hosted environment where the ranker can be run on a small
+# candidate sample. See Section 10.5 of submission_spec.md for acceptable
+# platforms (HuggingFace Spaces, Streamlit Cloud, Replit, Colab, Docker, Binder).
+
+reproduce_command: "python backend/rank_cli.py --candidates ./data/candidates.jsonl --jd ./data/job_description.txt --out ./team_sus.csv --top 100"
+# The single command that produces submission.csv from candidates.jsonl.
+# Should run end-to-end within 5 minutes on CPU with 16GB RAM and no network.
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "Local Windows machine (Lenovo)"
+  cpu_cores: 8
+  ram_gb: 16.082
+  python_version: "3.12.10"
+  os: "Windows 11"
+  uses_gpu_for_inference: false
+  has_network_during_ranking: false
+  pre_computation_required: true
+  pre_computation_time_minutes: <TIME_TO_RUN_download_models.py>
+
+# ============================================================================
+# AI tools declaration
+# ============================================================================
+ai_tools_used:
+  - "Claude" # e.g. for architecture discussion, code review
+  - "Antigravity"
+
+ai_usage_summary: |
+  Used Claude throughout development for debugging (backend/main.py and
+  backend/rank_cli.py), the v3.0.0 architectural rewrite (dynamic per-JD
+  weight generation, three-layer scoring), integrating sentence-transformers
+  for semantic scoring, and a pre-submission audit that caught a web-app
+  latency regression, a JD role-type detector bug, and a missing dependency
+  pin in requirements.txt. Used Antigravity for in-editor code generation
+  and refactoring during implementation. All architecture and scoring-design
+  decisions, and all final code review/acceptance, were made by the team.
+  No candidate data was fed to any hosted LLM - the ranking step itself
+  (rank_cli.py) uses only local, offline heuristic and sentence-transformer
+  scoring with no network calls, per the competition's compute constraints.
+# ============================================================================
+# Approach summary (optional but recommended)
+# ============================================================================
+methodology_summary: |
+  Two-stage retrieve-then-rank pipeline over the full 100K pool, designed to
+  stay within the CPU/5-minute budget without sacrificing quality on the
+  candidates that actually matter.
+
+  Stage 1 (retrieval): BM25 scores all 100K candidates against the JD in
+  seconds. The top 5,000 by BM25 score advance to full scoring; the
+  remaining ~95,000 get a flat baseline score (0.1) - they're mathematically
+  ineligible for the top 100 and this keeps the CSV valid without wasting
+  compute on clear non-matches.
+
+  Stage 2 (ranking): the top 5,000 go through a three-layer adaptive scorer
+  - Technical Fit, Career Fit, Recruiter Fit - combining skill alignment,
+  sentence-transformer semantic similarity + cross-encoder re-ranking,
+  career progression analysis, experience fit, and behavioral/engagement
+  signals from redrob_signals. Weights are dynamically generated per JD: the
+  JD is classified into a role archetype (ML, backend, data, security,
+  manager, etc.) and base weights are amplified accordingly, so a DevOps JD
+  and a People Manager JD don't score candidates the same way. Per-candidate,
+  any signal with no available data has its weight redistributed across that
+  candidate's remaining signals rather than scored as zero.
+
+  Known tradeoff: the Stage 1 BM25 cutoff (5,000) trades a small amount of
+  recall (a candidate with near-zero keyword overlap but strong
+  semantic-only fit could in theory fall outside the top 5,000) for
+  guaranteed runtime on the full pool. In practice the JD's most decisive
+  signals (title, core skills, domain terms) still show up lexically for
+  genuine fits, so this mainly filters out true non-matches rather than
+  borderline ones.
+
+  Runtime: full 100K-candidate pipeline completes in under 5 minutes on CPU.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true # I have read submission_spec.md in full
+  code_is_original_work: true # My code is my team's original work (using AI as a tool is fine)
+  no_collusion: true # I have not coordinated my submission with other teams
+  honeypot_check_done: true # OPTIONAL - set true if you explicitly checked for honeypots in your ranking
+  reproduction_tested: true # I have tested that my reproduce_command runs end-to-end

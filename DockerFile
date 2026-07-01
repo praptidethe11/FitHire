@@ -1,0 +1,60 @@
+# FitHire — self-contained Dockerfile (submission_spec.md Section 10.5).
+# Use this ONLY if a hosted sandbox (HF Spaces / Streamlit Cloud / Replit /
+# Colab / a pulled image) is impractical for your setup. It must build and
+# run unmodified — do not require any manual step after `docker build`.
+#
+# Build:
+#   docker build -t fithire .
+#
+# Run the web app (port 8000):
+#   docker run --rm -p 8000:8000 fithire
+#
+# Run the CLI ranking step instead (what Stage 3 actually reproduces):
+#   docker run --rm -v $(pwd)/data:/data fithire \
+#     python backend/rank_cli.py --candidates /data/candidates.jsonl \
+#       --jd /data/job_description.txt --out /data/submission.csv --top 100
+
+FROM python:3.12-slim
+
+# --- System deps ---
+# build-essential: some ML wheels still need a compiler on slim images.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# --- Python deps (cached as its own layer, before copying source) ---
+COPY requirements.txt .
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.5.1 \
+    && pip install --no-cache-dir -r requirements.txt
+
+# --- Project source ---
+COPY . .
+
+# --- Local working directories the app expects at runtime ---
+RUN mkdir -p /app/data /app/output /app/model_cache
+
+# --- Bake the semantic-model weights into the image at BUILD time ---
+# This is the offline-layer step: HF_HOME points inside the image so
+# download_models.py's cache write lands in /app/model_cache, which is then
+# baked into this layer. At *runtime* HF_HUB_OFFLINE=1 (below) means the app
+# reads only from this baked-in cache and never touches the network — this
+# satisfies the "Network: Off" ranking constraint in submission_spec.md
+# Section 3 while still letting the container run standalone with no
+# separate download step.
+ENV HF_HOME=/app/model_cache
+RUN python download_models.py
+
+# --- Runtime environment: force offline, no GPU ---
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+ENV CUDA_VISIBLE_DEVICES=""
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# Default entrypoint runs the web app. Override the command (see the CLI
+# example above) to run the batch ranking step instead.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

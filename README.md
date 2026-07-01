@@ -477,9 +477,9 @@ Replace `<PATH_TO_CANDIDATES>` below with the actual path to your copy of `candi
 
 ```bash
 python backend/rank_cli.py \
-  --candidates "/candidates.jsonl" \
-  --jd "data/job_description.txt" \
-  --out "team_dev.csv" \
+  --candidates "PATH_TO_CANDIDATES" \
+  --jd "PATH_TO_JD" \
+  --out "team_sus.csv" \
   --top 100
 ```
 
@@ -492,7 +492,7 @@ python backend/rank_cli.py \
 Rename the output to your registered participant ID:
 
 ```bash
-cp team_dev.csv YOUR_PARTICIPANT_ID.csv
+cp team_sus.csv YOUR_PARTICIPANT_ID.csv
 ```
 
 Run it through the organizer's validator (substitute the actual path to `validate_submission.py` from your hackathon bundle):
