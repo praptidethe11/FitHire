@@ -55,11 +55,6 @@ try:
     import torch.nn.functional as F  # type: ignore
     HAS_TRANSFORMERS = True
     device = "cpu"
-    # Force torch to use all available CPU cores for inference. Left
-    # unset, torch sometimes defaults to a small thread count (or 1) on
-    # Windows depending on how MKL/OMP env vars were inherited from the
-    # shell, which silently makes CPU inference several times slower
-    # with no visible error -- just a quiet, massive slowdown.
     import multiprocessing as _mp
     torch.set_num_threads(_mp.cpu_count())
     print(f"[INFO] torch using {torch.get_num_threads()} CPU threads "
@@ -67,7 +62,6 @@ try:
     bi_encoder = SentenceTransformer('all-MiniLM-L6-v2', device=device)
     cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', device=device)
 except ImportError:
-    # sentence-transformers / torch simply aren't installed.
     HAS_TRANSFORMERS = False
     print(
         "[WARN] Semantic models unavailable — sentence-transformers/torch are "
@@ -76,13 +70,6 @@ except ImportError:
         "non-semantic heuristic scorer for now."
     )
 except OSError as e:
-    # Model isn't in the local HuggingFace cache. This is the expected
-    # failure mode when HF_HUB_OFFLINE=1 is set (see rank_cli.py) and
-    # download_models.py hasn't been run yet — huggingface_hub raises an
-    # OSError/LocalEntryNotFoundError instead of trying the network.
-    # Fail LOUD here (not silently) so it's obvious in logs why semantic
-    # scoring is unavailable, even though the pipeline still degrades
-    # gracefully to the heuristic fallback rather than crashing outright.
     HAS_TRANSFORMERS = False
     print(
         "[WARN] Semantic models unavailable — could not load from the local "
@@ -139,8 +126,8 @@ _BASE_WEIGHTS = {
     "bm25_match":         0.04,
     "education":          0.03,
     "github_oss":         0.03,
-    "title_relevance":    0.04,   # was computed but never weighted — now a real signal
-    "certifications":     0.03,   # new first-class signal
+    "title_relevance":    0.04,   
+    "certifications":     0.03,  
 }
 
 # Role-type amplifier tables — these SHIFT relative importance, not hard-code weights
@@ -186,13 +173,6 @@ def _detect_role_type(jd_analysis: Dict, jd_text: str) -> str:
     text = jd_text.lower()
     title = jd_analysis.get("role_title", "").lower()
     must = " ".join(jd_analysis.get("must_have_skills", [])).lower()
-    # Use the full JD text, not just the first 1500 chars. This runs once per
-    # JD (not per-candidate), so the extra regex/`in` scans over the full text
-    # cost nothing meaningful — but truncating was silently dropping keyword
-    # hits that only appear later in the JD (e.g. a "skills inventory" or
-    # "what we're looking for" section past the intro), which caused clearly
-    # domain-specific JDs to fall back to "generic" and lose their role-type
-    # amplifiers entirely.
     combined = f"{title} {must} {text}"
 
     ml_kw  = ["machine learning", "deep learning", "neural", "pytorch", "tensorflow",
@@ -606,7 +586,6 @@ def parse_jd_file(file_bytes: bytes, filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1]
 
     if ext == "pdf":
-        # Route through _ocr_image_bytes which uses pypdf (pure-Python, no binaries)
         text = _ocr_image_bytes(file_bytes, filename=filename)
         if not text.strip():
             print(f"[JD] PDF text layer empty for '{filename}' (possibly a scanned image PDF)")
@@ -700,8 +679,6 @@ def parse_candidates_file(file_bytes: bytes, filename: str) -> List[Dict]:
                 except:
                     pass
         return candidates
-
-# Heuristic JD parsing is the explicit primary design. AI analysis is removed.
 
 def _extract_role_title(jd_text: str) -> str:
     """
@@ -1165,12 +1142,6 @@ def normalize_candidate(raw: Dict) -> Dict:
     Feature 6: Synonym recognition.
     Feature 7: No fabrication — missing fields get safe defaults, weights redistribute.
     """
-    # Fast path: already has a "profile" dict, so we trust profile.* fields
-    # (current_title, current_company, etc.) as-is rather than re-deriving them.
-    # However, top-level fields like skills/certifications/education can still be
-    # under non-canonical synonym names (e.g. "technical_skills" instead of "skills")
-    # even when a "profile" dict is present — so we still run synonym resolution
-    # for those, rather than returning immediately and silently dropping them.
     if "profile" in raw and isinstance(raw.get("profile"), dict):
         c = raw.copy()
         if "candidate_id" not in c:
@@ -1486,12 +1457,6 @@ _WHOLE_WORD_ONLY = {"go", "r", "c", "js", "ts", "py", "ml", "ai", "dl", "nlp", "
 def _normalize_skill(s: str) -> str:
     s = s.lower().strip()
     return _ALIAS_MAP.get(s, s)
-
-# Cache compiled \b<word>\b patterns — these are re-used across every candidate in a
-# ranking run (same JD skill list, same nice-to-have list), so compiling them once per
-# unique word instead of once per (candidate x skill) call removes the dominant cost in
-# skill_alignment_score. Unbounded but keyed on short skill/keyword strings only, so the
-# cache stays small relative to candidate pool size.
 _WORD_BOUNDARY_PATTERN_CACHE: Dict[str, "re.Pattern"] = {}
 _JD_KEYWORD_TERM_CACHE: Dict[str, set] = {}
 
@@ -1558,17 +1523,6 @@ def skill_alignment_score(candidate_skills: List, must_have: List[str], nice_to_
             score += 0.5
             matched.append(f"~{skill}")
 
-    # JD keyword bonus — reward genuine overlap between *the job description's own
-    # wording* and the candidate's text, beyond the explicit must/nice-to-have lists.
-    # (Previously this compared the candidate's own skill list against their own bio
-    # text, which is close to a tautology and inflated almost every candidate equally.)
-    # `extra_terms` depends only on jd_text/must_have/nice_to_have, which are identical
-    # for every candidate in a single ranking run — cache the term set keyed by jd_text
-    # instead of recomputing it per candidate. The match itself is done by tokenizing the
-    # candidate's text once into a word set and intersecting, rather than running one
-    # regex search per JD term per candidate (O(terms) regex scans -> O(text length)
-    # tokenization + O(1) set lookups). For a long narrative JD with 500+ extra terms
-    # this is the difference between tens of millions of regex scans and a single pass.
     jd_kw_bonus = 0.0
     if jd_text:
         cache_key = jd_text
@@ -2091,10 +2045,6 @@ def score_candidate(c, bm25_norm, bm25_max, jd_analysis, jd_text, jd_weights=Non
     else:
         base = (technical_fit + career_fit + recruiter_fit) / 3.0
 
-    # Education as multiplicative modifier (PhD for PhD role → small uplift).
-    # Only apply when we actually found education data to compare — otherwise this
-    # silently penalized every candidate with no parseable education info (edu_mod
-    # defaults to 0.95), which contradicts the "never penalize missing data" design.
     edu_multiplier = edu_mod if has_edu else 1.0
     base = max(0.0, min(1.0, base * edu_multiplier))
 
@@ -2210,30 +2160,7 @@ async def run_ranking_pipeline(
         bm25_scores = [0.0] * len(candidates)
 
     # Step 6: Score candidates.
-    #
-    # PERF FIX: this loop used to call score_candidate() for every candidate
-    # with semantic_score=None. Whenever semantic_score is None,
-    # score_candidate() falls into its per-candidate semantic branch, which
-    # re-encodes the JD with the bi-encoder AND calls the cross-encoder --
-    # unbatched, once per candidate. For a 300-candidate request that's 300
-    # separate cross-encoder forward passes (the expensive model here),
-    # which is what actually blew the 2-5s budget. The models were already
-    # loaded once at import time (see the module-level `bi_encoder` /
-    # `cross_encoder` globals above) -- reloading was never the problem;
-    # calling them unbatched, on every candidate, every request, was.
-    #
-    # Fix mirrors the CLI's strategy (rank_cli.py + precompute_semantic_scores
-    # below) but funnels much harder, since the web app handles ~300
-    # candidates and must respond in single-digit seconds, not 100K
-    # candidates in 5 minutes:
-    #   1. Rank all candidates with the BM25 score already computed above
-    #      (free -- no model calls).
-    #   2. Only send the top FUNNEL_SIZE (30-50) candidates into the real
-    #      bi-encoder + cross-encoder pipeline, batched, via
-    #      precompute_semantic_scores().
-    #   3. Everyone outside the funnel gets the cheap token-Jaccard heuristic
-    #      semantic score (the same fallback used when transformers aren't
-    #      installed at all) instead of a real model call.
+
     for c in candidates:
         c['cached_text'] = c.get('cached_text') or build_candidate_text(c)
 
@@ -2246,10 +2173,7 @@ async def run_ranking_pipeline(
 
     semantic_scores = [0.0] * len(candidates)
 
-    # Generous per-request deadline for the model pass. If it somehow runs
-    # long (cold start, unusually large candidate texts, etc.) whatever
-    # isn't finished falls back to the heuristic instead of hanging the
-    # request past the 2-5s target.
+
     deadline = time.time() + 20.0
 
     if HAS_TRANSFORMERS and funnel_indices:
@@ -2311,17 +2235,13 @@ async def rank_candidates(
     top_n: int = Form(20),
     use_ai: bool = Form(True),
 ):
-    # ── JD resolution: file → OCR/parse → fallback to text box ──
-    # Priority: file parse result if non-empty, then text-box input.
-    # This handles: (a) image file with OCR, (b) file parse fails/empty → text box,
-    # (c) text box only, (d) both provided where file is empty (image + no OCR installed).
+
     jd_content = ""
 
     if jd_file and jd_file.filename:
         jd_bytes = await jd_file.read()
         jd_content = parse_jd_file(jd_bytes, jd_file.filename)
-        # If file parse returned empty (e.g. image without OCR, or corrupt file),
-        # fall through to text-box input below rather than immediately erroring.
+        
 
     if not jd_content.strip() and jd_text and jd_text.strip():
         jd_content = jd_text.strip()

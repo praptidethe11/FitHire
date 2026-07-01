@@ -316,13 +316,6 @@
     // Load Demo
     document.getElementById('load-demo-btn').onclick = async () => {
         try {
-            // Clear any previously selected files first. The rank-btn handler
-            // checks `candFile`/`jdFile` (read straight from the <input> elements)
-            // BEFORE falling back to state.demoCandidates / jd-text, and a file
-            // input keeps its selected file even after this button repopulates
-            // jd-text / state.demoCandidates. Without this reset, ranking after
-            // a prior CSV/JD-file upload silently re-used the old file instead
-            // of the demo data.
             const jdFileInput = document.getElementById('jd-file');
             jdFileInput.value = '';
             document.getElementById('jd-drop').textContent = 'Upload JD (.pdf, .docx, .txt)';
@@ -469,11 +462,6 @@
         if (!candFile && !state.demoCandidates) return alert('Please provide a Candidate Pool');
 
         const formData = new FormData();
-        // Always send jd_text if present — the backend prefers the file's
-        // extracted text but falls back to this if the file yields nothing
-        // (e.g. an image where OCR fails or isn't available server-side).
-        // Previously this used if/else, so jd_text was silently dropped
-        // whenever a file was attached, even with text typed in too.
         if (jdFile) formData.append('jd_file', jdFile);
         if (jdText) formData.append('jd_text', jdText);
 

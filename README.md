@@ -11,27 +11,27 @@ Not by matching keywords, but by understanding people.
 
 <p align="center">
 
-![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Sentence Transformers](https://img.shields.io/badge/Semantic%20Search-SentenceTransformers-FF6F00?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
-![Hackathon](https://img.shields.io/badge/Data%20%26%20AI-Challenge-orange?style=for-the-badge)
+!\[Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge\&logo=python\&logoColor=white)
+!\[FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge\&logo=fastapi\&logoColor=white)
+!\[Sentence Transformers](https://img.shields.io/badge/Semantic%20Search-SentenceTransformers-FF6F00?style=for-the-badge)
+!\[License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
+!\[Hackathon](https://img.shields.io/badge/Data%20%26%20AI-Challenge-orange?style=for-the-badge)
 
 </p>
 
----
+\---
 
 ## Problem Statement
 
 > Recruiters go through hundreds of profiles and still often miss the right person - not because the talent isn't there, but because keyword filters can't see what actually matters.
 
-**The Data & AI Challenge** asked for an AI system that ranks candidates the way a great recruiter would: by reading a job description and _understanding_ what the role needs, looking at the full picture (career history, skills, behavioral signals, platform activity), and delivering a shortlist a recruiter can actually trust.
+**The Data \& AI Challenge** asked for an AI system that ranks candidates the way a great recruiter would: by reading a job description and _understanding_ what the role needs, looking at the full picture (career history, skills, behavioral signals, platform activity), and delivering a shortlist a recruiter can actually trust.
 
 **FitHire** is that system.
 
 Instead of asking **"do these words match?"**, it asks: **"would this person actually succeed in this role?"**
 
----
+\---
 
 ## Demo
 
@@ -46,7 +46,7 @@ The demo walks through:
 - Reviewing the explainable, recruiter-friendly score breakdown per candidate
 - Comparing shortlisted candidates side by side and exporting to CSV
 
----
+\---
 
 ## Why FitHire Is Different
 
@@ -60,27 +60,27 @@ FitHire instead runs a **JD-aware, per-candidate adaptive pipeline**:
 4. It blends keyword-based search (BM25) with semantic, meaning-based matching (sentence embeddings), so "AI Engineer" and "Machine Learning Engineer" are recognized as the same thing.
 5. Every score ships with a recruiter-readable explanation, not just a number.
 
----
+\---
 
 ## Industry Scope
 
 Right now FitHire can process other job fields, but it is currently **optimized for engineering and technical hiring** - the role-detection model, weight amplifiers, and scoring heuristics in `main.py` are tuned for engineering archetypes (ML, backend, frontend, data, DevOps, security, management).
 
-That said, the foundation underneath isn't engineering-specific. The AI JD parser (`analyze_jd_with_ai` / `extract_jd_heuristic`) extracts **generic hiring concepts**, not engineering-only ones:
+That said, the foundation underneath isn't engineering-specific. The AI JD parser (`analyze\_jd\_with\_ai` / `extract\_jd\_heuristic`) extracts **generic hiring concepts**, not engineering-only ones:
 
-- `role_title`
-- `must_have_skills`
-- `years_min` / `years_max`
-- `mandatory_certifications`
-- `soft_skills`
-- `education_requirement`
-- `preferred_companies`
-- `domain_keywords`
-- `key_responsibilities`
+- `role\_title`
+- `must\_have\_skills`
+- `years\_min` / `years\_max`
+- `mandatory\_certifications`
+- `soft\_skills`
+- `education\_requirement`
+- `preferred\_companies`
+- `domain\_keywords`
+- `key\_responsibilities`
 
 Because these fields are domain-agnostic, FitHire can already parse and rank candidates for non-engineering JDs - it just won't yet have a specialized weight profile or role detector tuned for, say, a Sales or Legal hire the way it does for an ML Engineer. See **Future Scope → Multi-Domain Recruitment Support** below for where this is headed.
 
----
+\---
 
 ## Core Features
 
@@ -100,7 +100,7 @@ Because these fields are domain-agnostic, FitHire can already parse and rank can
 
 ✔ Built-in fairness filter - strips gender, age, religion, nationality, ethnicity, disability, and other protected attributes before any scoring happens
 
-✔ Universal candidate normalization - accepts wildly inconsistent field names (`skills` / `technical_skills` / `tech_stack` …) and folds them into one schema
+✔ Universal candidate normalization - accepts wildly inconsistent field names (`skills` / `technical\_skills` / `tech\_stack` …) and folds them into one schema
 
 ✔ OCR support - can read resumes submitted as photos/screenshots, not just structured files
 
@@ -108,11 +108,11 @@ Because these fields are domain-agnostic, FitHire can already parse and rank can
 
 ✔ CSV export in the challenge's required output format
 
----
+\---
 
 ## Architecture
 
-FitHire consists of two interconnected layers: a core FastAPI backend processing infrastructure (`main.py`) that handles parsing, modeling, and deep evaluation, paired with a lightweight, standalone execution CLI engine (`rank_cli.py`) optimized for headless, high-throughput offline candidate evaluations and dataset exports.
+FitHire consists of two interconnected layers: a core FastAPI backend processing infrastructure (`main.py`) that handles parsing, modeling, and deep evaluation, paired with a lightweight, standalone execution CLI engine (`rank\_cli.py`) optimized for headless, high-throughput offline candidate evaluations and dataset exports.
 
 ```text
                ┌──────────────────────────────────────────────┐
@@ -121,8 +121,8 @@ FitHire consists of two interconnected layers: a core FastAPI backend processing
                                        │
               ┌────────────────────────┴───────────────────────┐
               ▼                                                 ▼
-      [ Web Frontend UI ]                               [ Bulk Evaluation ]
-     (FastAPI Local Server)                             (backend/rank_cli.py)
+      \[ Web Frontend UI ]                               \[ Bulk Evaluation ]
+     (FastAPI Local Server)                             (backend/rank\_cli.py)
               │                                                 │
               └────────────────────────┬───────────────────────┘
                                         ▼
@@ -168,11 +168,11 @@ FitHire consists of two interconnected layers: a core FastAPI backend processing
 |
 `main.py`
 |
-`rank_cli.py`
+`rank\_cli.py`
 |
 |
 
----
+\---
 
 ## |
 
@@ -202,7 +202,7 @@ Calls into
 `main.py`
 |
 |
-Scoring & ranking logic
+Scoring \& ranking logic
 |
 ✅ (owns it)
 |
@@ -240,7 +240,7 @@ What happens
 |
 |
 
----
+\---
 
 ## |
 
@@ -305,7 +305,7 @@ Candidate Pool
 |
 |
 
----
+\---
 
 ## |
 
@@ -345,7 +345,7 @@ Technology
 |
 |
 
----
+\---
 
 ## |
 
@@ -386,7 +386,7 @@ Export
 CSV (challenge-required format)
 |
 
----
+\---
 
 ## Project Structure
 
@@ -395,30 +395,30 @@ FitHire
 │
 ├── backend/
 │   ├── main.py              # Ranking engine + FastAPI API server
-│   ├── rank_cli.py          # CLI wrapper for bulk/offline ranking + CSV export
-│   └── __init__.py
+│   ├── rank\_cli.py          # CLI wrapper for bulk/offline ranking + CSV export
+│   └── \_\_init\_\_.py
 │
 ├── frontend/
 │   └── dist/
 │       └── index.html       # Resume-style landing page + upload UI
 │
 ├── data/
-│   ├── job_description.txt  # Official released JD (bundled for a self-contained reproduce command)
-│   ├── sample_jd.txt        # Demo JD, used only by the quick local smoke test
-│   ├── sample_candidates.json
-│   └── sample_candidates.csv
+│   ├── job\_description.txt  # Official released JD (bundled for a self-contained reproduce command)
+│   ├── sample\_jd.txt        # Demo JD, used only by the quick local smoke test
+│   ├── sample\_candidates.json
+│   └── sample\_candidates.csv
 │
-├── download_models.py       # One-time setup: pre-caches sentence-transformers models
+├── download\_models.py       # One-time setup: pre-caches sentence-transformers models
 ├── requirements.txt
 ├── run.py                   # One-command launcher
 └── README.md
 ```
 
----
+\---
 
 ## Quick Start
 
-### 1. Create and activate an isolated virtual environment
+### 1\. Create and activate an isolated virtual environment
 
 Run everything for this project inside its own `.venv` — **do not** install into your global/system Python. Mixing this project's pinned dependency versions with other projects on the same interpreter is a real source of breakage (version conflicts, hard-to-diagnose import errors), not a hypothetical one.
 
@@ -433,7 +433,7 @@ Activate it:
 source .venv/Scripts/activate
 
 # Windows (Command Prompt / PowerShell)
-.venv\Scripts\activate
+.venv\\Scripts\\activate
 
 # macOS / Linux
 source .venv/bin/activate
@@ -441,13 +441,13 @@ source .venv/bin/activate
 
 Your terminal prompt should now show `(.venv)` at the start of the line. Confirm before continuing.
 
-### 2. Install dependencies
+### 2\. Install dependencies
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### 3. Launch the web interface
+### 3\. Launch the web interface
 
 To evaluate shortlists, test the upload workflow, or try OCR interactively:
 
@@ -457,33 +457,33 @@ python run.py
 
 Then open **http://localhost:8000** in your browser.
 
----
+\---
 
 ## Running the Bulk CLI (Production Evaluation Sequence)
 
 ### Step 1: Pre-download and cache the models
 
-The competition evaluation runs fully offline during ranking (`has_network_during_ranking: false`). Before running a timed production ranking pass, download and cache the model weights once:
+The competition evaluation runs fully offline during ranking (`has\_network\_during\_ranking: false`). Before running a timed production ranking pass, download and cache the model weights once:
 
 ```bash
-python download_models.py
+python download\_models.py
 ```
 
-This caches `all-MiniLM-L6-v2` (bi-encoder) and `cross-encoder/ms-marco-MiniLM-L-6-v2` locally. From then on, `rank_cli.py` sets `HF_HUB_OFFLINE=1` automatically, so it reads only from that local cache and fails fast (instead of hanging) if a model isn't cached yet.
+This caches `all-MiniLM-L6-v2` (bi-encoder) and `cross-encoder/ms-marco-MiniLM-L-6-v2` locally. From then on, `rank\_cli.py` sets `HF\_HUB\_OFFLINE=1` automatically, so it reads only from that local cache and fails fast (instead of hanging) if a model isn't cached yet.
 
 ### Step 2: Run the full 100K-candidate reproduction
 
-Replace `<PATH_TO_CANDIDATES>` below with the actual path to your copy of `candidates.jsonl`.
+Replace `<PATH\_TO\_CANDIDATES>` below with the actual path to your copy of `candidates.jsonl`.
 
 ```bash
-python backend/rank_cli.py \
-  --candidates "PATH_TO_CANDIDATES" \
-  --jd "PATH_TO_JD" \
-  --out "team_sus.csv" \
+python -m backend.rank_cli \
+  --candidates "C:\Users\Lenovo\OneDrive\Documents\Redrob AI\Data and AI challenge\FitHire\data\candidates.jsonl" \
+  --jd "C:\Users\Lenovo\OneDrive\Documents\Redrob AI\Data and AI challenge\FitHire\data\job_description.txt" \
+  --out team_sus.csv \
   --top 100
 ```
 
-> **Windows Git Bash note:** if your path contains spaces or brackets (e.g. `[PUB] ...`), keep the whole `--candidates` value inside double quotes exactly as shown above.
+> \*\*Windows Git Bash note:\*\* if your path contains spaces or brackets (e.g. `\[PUB] ...`), keep the whole `--candidates` value inside double quotes exactly as shown above.
 
 **Time-budget guard:** the semantic scoring stage (bi-encoder + cross-encoder re-ranking) tracks its own elapsed time against the 5-minute wall-clock limit. If model inference is running too slowly to finish all 5,000 semantically-scored candidates in time, it automatically falls back to a fast heuristic score for whatever's left, so the run finishes within budget instead of risking a timeout disqualification.
 
@@ -492,18 +492,18 @@ python backend/rank_cli.py \
 Rename the output to your registered participant ID:
 
 ```bash
-cp team_sus.csv YOUR_PARTICIPANT_ID.csv
+cp team\_sus.csv YOUR\_PARTICIPANT\_ID.csv
 ```
 
-Run it through the organizer's validator (substitute the actual path to `validate_submission.py` from your hackathon bundle):
+Run it through the organizer's validator (substitute the actual path to `validate\_submission.py` from your hackathon bundle):
 
 ```bash
-python "/validate_submission.py" YOUR_PARTICIPANT_ID.csv
+python "/validate\_submission.py" YOUR\_PARTICIPANT\_ID.csv
 ```
 
 A successful run prints: `Submission is valid.`
 
----
+\---
 
 ## API Reference
 
@@ -516,7 +516,7 @@ Description
 |
 |
 
----
+\---
 
 ## |
 
@@ -545,16 +545,16 @@ GET
 Health check - reports which optional capabilities (BM25, transformers, OCR) are currently active
 |
 
----
+\---
 
 ## Challenge Compatibility
 
-Built specifically for **The Data & AI Challenge**.
+Built specifically for **The Data \& AI Challenge**.
 
 - **Input:** a job description plus a candidate pool in any of the supported formats (including the challenge's `.jsonl` dataset).
-- **Output:** `YOUR_PARTICIPANT_ID.csv` containing candidate ID, rank, overall score, confidence, AI-generated reasoning, matched skills, and the full Technical/Career/Recruiter Fit breakdown - ready to submit as-is.
+- **Output:** `YOUR\_PARTICIPANT\_ID.csv` containing candidate ID, rank, overall score, confidence, AI-generated reasoning, matched skills, and the full Technical/Career/Recruiter Fit breakdown - ready to submit as-is.
 
----
+\---
 
 ## Future Scope
 
@@ -574,7 +574,7 @@ FitHire's recruiter explanation engine and confidence scoring are already built 
 
 Also planned: vector database support for million-scale candidate search, an LLM-powered recruiter copilot for follow-up questions like "why was this candidate selected over that one?", side-by-side candidate comparison dashboard improvements, and team collaboration / recruiter notes.
 
----
+\---
 
-**Built for the Data & AI Challenge.**
+**Built for the Data \& AI Challenge.**
 Hiring deserves more than keyword matching. FitHire helps recruiters spend less time searching and more time hiring the right people.

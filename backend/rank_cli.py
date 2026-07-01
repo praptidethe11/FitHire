@@ -19,14 +19,7 @@ import sys
 import time
 import os
 
-# The ranking step must not touch the network (submission_spec.md Section 3;
-# submission_metadata_template.yaml declares has_network_during_ranking: false).
-# Setting these BEFORE importing backend.main (which loads the sentence-
-# transformers models at import time) makes huggingface_hub read only from
-# the local cache and fail immediately if a model isn't there yet, instead
-# of hanging on network calls that a sandboxed/offline reproduction
-# environment can't complete anyway. Run `python download_models.py` once,
-# beforehand, to populate that cache.
+
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
@@ -109,13 +102,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     print("  FitHire CLI — Candidate Ranking Pipeline")
     print("=" * 55)
 
-    # Semantic scoring (sentence-transformers) is a real, tested part of this
-    # pipeline's scoring — not an optional nicety. If it's unavailable this
-    # run would silently score differently than what was tested locally
-    # (see backend/main.py's HAS_TRANSFORMERS fallback). For an actual
-    # submission run, that's a correctness problem worth stopping for, not
-    # something to paper over. Pass --allow-heuristic-fallback to proceed
-    # anyway (dev/exploration only — never for the real submission CSV).
+
     if not HAS_TRANSFORMERS and not allow_heuristic_fallback:
         print(
             "\n[FATAL] Semantic scoring models (sentence-transformers) are not "
@@ -152,16 +139,10 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     for kw in jd_analysis.get("domain_keywords", []):
         jd_tokens.extend(re.findall(r"[a-z0-9]+", kw.lower()))
 
-    # Load candidates — stream from disk rather than materializing the full
-    # raw list, since raw JSONL records (career_history, descriptions, etc.)
-    # are large and we must not hold raw + normalized + corpus copies of all
-    # 100K candidates in memory at once (this previously OOM'd at ~3.9GB on a
-    # 100K-row dataset).
+
     print(f"\n[3] Streaming candidates from: {candidates_path}")
 
-    # Pass 1: normalize + build BM25 corpus tokens, freeing each raw record
-    # as we go. Only the lean BM25 corpus (token lists) and a same-length
-    # list of normalized candidates are kept — not the raw JSONL dicts.
+
     print("[4] Normalizing candidate data + building BM25 corpus (streaming)...")
     candidates = []
     corpus = []
@@ -191,8 +172,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
             bm25_scores = normalize_bm25_scores(bm25_raw)  # percentile-based, not max-based
         else:
             bm25_scores = [0.0] * len(candidates)
-        # corpus (token lists) and the BM25 model are no longer needed past
-        # this point — drop references so they can be freed before scoring.
+
         del corpus
         if 'bm25_model' in dir():
             del bm25_model
@@ -202,9 +182,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     t_bm25 = time.time()
     print(f"    BM25 index built in {t_bm25 - t_start:.1f}s")
 
-    # Score — keep only (final_score, info) per candidate going forward;
-    # `candidates` (normalized dicts incl. full text) is dropped right after
-    # scoring since `info` already carries everything build_reasoning needs.
+
     print("[6] Scoring candidates...")
 # 1. Filter: Identify Top 5,000 candidates by BM25 score
     # We use a list of tuples to keep track of original indices while sorting
@@ -219,10 +197,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     top_candidates = [candidates[idx] for idx in top_indices]
     t_sem_start = time.time()
     
-    # Hard budget for the whole run is 5 min (submission_spec.md Section 3).
-    # Give semantic scoring up to 240s measured from process start, leaving
-    # a safety margin for streaming/BM25 (already elapsed, in t_start) and
-    # for writing the output CSV afterward.
+
     SEMANTIC_BUDGET_DEADLINE = t_start + 240
     
     # PyTorch inference optimization: Disables gradient tracking to maximize processing speed and minimize memory
@@ -269,9 +244,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
         
     del candidates, bm25_scores
 
-    # Tiebreak per spec Section 3: "If two candidates have the same score,
-    # you must still assign unique ranks... by candidate_id ascending."
-    # Mirrors backend/main.py's run_ranking_pipeline sort key.
+
     scored.sort(key=lambda x: (-round(x[0], 7), x[1]["candidate_id"]))
     top = scored[:top_n]
 
@@ -281,10 +254,7 @@ async def run_cli(candidates_path: str, jd_path: str, out_path: str, top_n: int,
     bot_score = top[-1][1]['final_score'] * 100
     print(f"    Score range: {bot_score:.1f}% – {top_score:.1f}%")
 
-    # Write output — EXACT schema required by submission_spec.md Section 2:
-    # candidate_id,rank,score,reasoning (4 columns, this order, header verbatim).
-    # score is the raw [0,1] final_score, not a "_%"-suffixed percentage —
-    # the spec only requires non-increasing-by-rank, not any particular scale.
+
     print(f"\n[7] Writing {len(top)} results to: {out_path}")
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -312,12 +282,7 @@ def main():
     parser.add_argument("--jd", required=True, help="Path to job description (TXT/DOCX/PDF)")
     parser.add_argument("--out", default="ranked_candidates.csv", help="Output CSV path")
     parser.add_argument("--top", type=int, default=100, help="Number of candidates to shortlist")
-    # Compliance note: the ranking step (this CLI) must not call hosted LLM APIs per the
-    # hackathon's compute constraints. Heuristic JD analysis is therefore the DEFAULT, not
-    # an opt-out — running this command with no flags, exactly as documented in the README,
-    # can never trigger a hosted API call even if an API key happens to be present in the
-    # environment. --use-ai is an explicit opt-in for local/dev exploration only and must
-    # not be used for the submission run.
+
     parser.add_argument("--use-ai", action="store_true",
                          help="Opt in to hosted LLM JD analysis (DEV/EXPLORATION ONLY — "
                               "not permitted for the actual submission run; the ranking "

@@ -1,9 +1,3 @@
-# Redrob Hackathon - Submission Metadata Template
-#
-# Copy this file to your repo root as `submission_metadata.yaml` and fill it in.
-# The fields here should match what you submit via the portal at upload time.
-# Stage 3 review uses this file to verify your portal metadata.
-
 # ============================================================================
 # Team identity
 # ============================================================================
@@ -17,11 +11,10 @@ primary_contact:
 team_members:
   - name: "Rajit Prabhu"
     email: "rajitprabhu03@gmail.com"
-    role: "Backend" # Optional, e.g. "Team Lead", "Backend", "Data"
+    role: "Backend"
   - name: "Vedant Rechwad"
     email: "vedantrechwad@gmail.com"
     role: "Backend"
-  # Add more members as needed; solo participants list just one member
 
 # ============================================================================
 # Code and reproducibility
@@ -57,7 +50,7 @@ compute:
 # AI tools declaration
 # ============================================================================
 ai_tools_used:
-  - "Claude" # e.g. for architecture discussion, code review
+  - "Claude"
   - "Antigravity"
 
 ai_usage_summary: |
