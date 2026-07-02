@@ -76,7 +76,7 @@ methodology_summary: |
   Stage 1 (retrieval): BM25 scores all 100K candidates against the JD in
   seconds. The top 5,000 by BM25 score advance to full scoring; the
   remaining ~95,000 get a flat baseline score (0.1) - they're mathematically
-  ineligible for the top 100 and this keeps the CSV valid without wasting
+  ineligible for the top 100, and this keeps the CSV valid without wasting
   compute on clear non-matches.
 
   Stage 2 (ranking): the top 5,000 go through a three-layer adaptive scorer
