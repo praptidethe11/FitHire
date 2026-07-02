@@ -43,6 +43,12 @@ Instead of asking **"do these words match?"**, it asks: **"would this person act
 
 ---
 
+## Live Demo (Hosted Sandbox)
+
+**🔗 [https://praptidethe11-fithire.hf.space](https://praptidethe11-fithire.hf.space)**
+
+Hosted on Hugging Face Spaces (Docker SDK, CPU Basic). Upload a job description and a small candidate sample (≤100 candidates) directly in the browser to see the ranking pipeline run end-to-end.
+
 ## Demo
 
 [▶ Watch Demo](https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df)

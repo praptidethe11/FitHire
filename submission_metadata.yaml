@@ -23,10 +23,14 @@ github_repo: "https://github.com/praptidethe11/FitHire.git"
 # Required. Must be reachable. Private repos OK if you can grant organizer
 # access at Stage 3 (the email to add will be communicated then).
 
-sandbox_link: "https://huggingface.co/spaces/YOUR_USERNAME/redrob-ranker"
-# Required. A working hosted environment where the ranker can be run on a small
-# candidate sample. See Section 10.5 of submission_spec.md for acceptable
-# platforms (HuggingFace Spaces, Streamlit Cloud, Replit, Colab, Docker, Binder).
+sandbox_link: "https://praptidethe11-fithire.hf.space"
+# Platform : Hugging Face Spaces
+# Tier : Free CPU Basic tier
+# The app runs on Hugging Face’s servers and keeps running even after you close the browser. On
+# the free CPU Basic tier, Spaces that receive no requests for 48+ hours go to sleep; the next
+# visitor will automatically restart the container. That restart can add ~30–60 seconds to the first
+# load while cached models load, but subsequent requests are fast. So asking
+# organizers to open the link within 48 hours of use avoids the delay.
 
 reproduce_command: "python backend/rank_cli.py --candidates ./data/candidates.jsonl --jd ./data/job_description.txt --out ./team_sus.csv --top 100"
 # The single command that produces submission.csv from candidates.jsonl.
