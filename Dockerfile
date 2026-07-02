@@ -27,8 +27,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Pre-download and cache the sentence-transformer models AT BUILD TIME,
-# not on first request — matches what download_models.py already does for you.
-RUN python download_models.py
+# not on first request. HF_HOME is pinned to a fixed path (rather than the
+# default ~/.cache/huggingface) because Hugging Face Spaces runs the
+# container as a different user at runtime than the one used during build —
+# relying on a home-directory-relative cache path causes the runtime user to
+# look in the wrong place and silently hang or re-download. Pinning to an
+# absolute path inside /app and opening permissions avoids that mismatch.
+ENV HF_HOME=/app/.cache/huggingface
+RUN python download_models.py && chmod -R 777 /app/.cache
 
 # Hugging Face Spaces expects the app on port 7860
 EXPOSE 7860
