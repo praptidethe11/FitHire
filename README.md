@@ -49,6 +49,10 @@ Instead of asking **"do these words match?"**, it asks: **"would this person act
 
 Hosted on Hugging Face Spaces (Docker SDK, CPU Basic). Upload a job description and a small candidate sample (≤100 candidates) directly in the browser to see the ranking pipeline run end-to-end.
 
+## Presentation
+
+**📊 [View Presentation](https://docs.google.com/presentation/d/17Wf9lbP44SIr8cSfj681NyPIsEN21On9w_-b91Huv_A/edit?usp=sharing)**
+
 ## Demo
 
 [▶ Watch Demo](https://github.com/user-attachments/assets/b5ee7a97-6904-4b23-8f17-b988638783df)
