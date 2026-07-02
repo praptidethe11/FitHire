@@ -1,3 +1,13 @@
+---
+title: FitHire
+emoji: 🎯
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 <p align="center">
   <img width="1895" height="966" alt="Image" src="https://github.com/user-attachments/assets/b35268e8-9383-4994-bad7-92014aaa899d" />
 </p>
